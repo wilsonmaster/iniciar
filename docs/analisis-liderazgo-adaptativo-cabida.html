@@ -1,0 +1,705 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Evaluación crítica de experimentos · Cabida Fase 1</title>
+  <style>
+    :root {
+      --navy:#082b59;
+      --navy-2:#0b437c;
+      --blue:#0c78bf;
+      --blue-2:#21a5e5;
+      --ice:#eef8fd;
+      --cyan:#dff4fb;
+      --violet:#7057c8;
+      --violet-bg:#eee8ff;
+      --orange:#ef8a33;
+      --orange-bg:#fff0e2;
+      --green:#37a967;
+      --green-bg:#e9f7ed;
+      --red:#c84f53;
+      --red-bg:#fdeced;
+      --ink:#12233c;
+      --muted:#5d7089;
+      --line:#cfe0ed;
+      --paper:#ffffff;
+    }
+
+    * { box-sizing: border-box; }
+    @page { size: A4 landscape; margin: 0; }
+    html, body { margin:0; padding:0; background:#dbe8f1; color:var(--ink); font-family:Arial, Helvetica, sans-serif; }
+    body { print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+    .page {
+      width:297mm;
+      height:210mm;
+      margin:0 auto;
+      background:var(--paper);
+      position:relative;
+      overflow:hidden;
+      page-break-after:always;
+      break-after:page;
+      padding:10mm 11mm 12mm 11mm;
+    }
+    .page:last-child { page-break-after:auto; break-after:auto; }
+    @media screen {
+      .page { margin:8mm auto; box-shadow:0 8px 30px rgba(8,43,89,.18); }
+    }
+
+    h1,h2,h3,h4,p { margin:0; }
+    h1 { font-size:27pt; line-height:1.02; letter-spacing:-.8px; }
+    h2 { font-size:17pt; line-height:1.08; letter-spacing:-.25px; }
+    h3 { font-size:11.5pt; line-height:1.15; }
+    h4 { font-size:9.2pt; line-height:1.15; }
+    p, li { font-size:8.55pt; line-height:1.28; }
+    ul, ol { margin:1.5mm 0 0 4.5mm; padding:0; }
+    li { margin:0 0 1.1mm 0; }
+    strong { color:var(--navy); }
+    .muted { color:var(--muted); }
+    .tiny { font-size:7pt; line-height:1.2; }
+    .small { font-size:7.7pt; line-height:1.24; }
+    .eyebrow { color:var(--blue); font-size:7.2pt; font-weight:800; letter-spacing:1.25px; text-transform:uppercase; }
+    .mono { font-family:"Courier New", monospace; }
+
+    .page-head { display:flex; align-items:center; justify-content:space-between; height:13mm; border-bottom:.45mm solid #d6e6f1; margin-bottom:4mm; }
+    .brand { display:flex; align-items:center; gap:2.4mm; font-weight:800; color:var(--navy); font-size:9.5pt; }
+    .brand-mark { width:8mm; height:8mm; border-radius:2.2mm; display:grid; place-items:center; color:white; background:linear-gradient(145deg,var(--blue),var(--navy)); font-size:7.5pt; letter-spacing:-.4px; }
+    .meta { color:var(--muted); font-size:7.2pt; text-align:right; line-height:1.25; }
+    .page-foot { position:absolute; left:11mm; right:11mm; bottom:4.5mm; height:5mm; border-top:.35mm solid #d9e6ef; display:flex; align-items:flex-end; justify-content:space-between; color:#71839a; font-size:6.7pt; }
+    .page-no { color:var(--navy); font-weight:800; }
+
+    .section-bar { min-height:13mm; display:flex; align-items:center; background:linear-gradient(90deg,var(--navy),var(--blue)); color:white; border-radius:3mm; padding:2.5mm 4mm; margin-bottom:4mm; box-shadow:0 2mm 5mm rgba(8,67,124,.12); }
+    .section-bar .num { flex:none; width:12mm; height:12mm; margin-left:-1mm; margin-right:3mm; margin-top:-4mm; margin-bottom:-4mm; border-radius:50%; display:grid; place-items:center; background:#fff; border:1mm solid var(--navy); color:var(--navy); font-size:12pt; font-weight:900; }
+    .section-bar .title { font-weight:800; font-size:15pt; letter-spacing:-.2px; }
+    .section-bar .sub { margin-left:auto; font-size:7.2pt; opacity:.88; text-transform:uppercase; letter-spacing:.8px; }
+    .section-bar.orange { background:linear-gradient(90deg,#b95418,var(--orange)); }
+    .section-bar.violet { background:linear-gradient(90deg,#46368b,var(--violet)); }
+    .section-bar.green { background:linear-gradient(90deg,#167643,var(--green)); }
+
+    .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:4mm; }
+    .grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:3.5mm; }
+    .grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:3mm; }
+    .span-2 { grid-column:span 2; }
+    .card { border:.35mm solid var(--line); border-radius:3.2mm; padding:3.5mm; background:#fff; position:relative; }
+    .card h3 { color:var(--navy); margin-bottom:1.6mm; }
+    .card h4 { color:var(--navy); margin-bottom:1mm; }
+    .card.blue { background:linear-gradient(145deg,#f4fbff,var(--cyan)); border-color:#bfe6f6; }
+    .card.violet { background:linear-gradient(145deg,#f8f5ff,var(--violet-bg)); border-color:#d8cdfa; }
+    .card.orange { background:linear-gradient(145deg,#fff9f4,var(--orange-bg)); border-color:#f4d2b6; }
+    .card.green { background:linear-gradient(145deg,#f6fcf8,var(--green-bg)); border-color:#c9ead5; }
+    .card.red { background:linear-gradient(145deg,#fff8f8,var(--red-bg)); border-color:#efc8cb; }
+    .icon-row { display:flex; gap:3mm; align-items:flex-start; }
+    .icon { flex:none; width:11mm; height:11mm; border-radius:50%; display:grid; place-items:center; background:#d5f1fc; color:var(--navy); font-size:10pt; font-weight:900; border:.5mm solid white; box-shadow:0 1mm 3mm rgba(10,60,100,.12); }
+    .icon.violet { background:#e1d9ff; color:#4a3793; }
+    .icon.orange { background:#ffe0c3; color:#ad4d16; }
+    .icon.green { background:#d9f1e1; color:#167643; }
+    .tag { display:inline-block; border-radius:10mm; padding:1.1mm 2.5mm; background:#e6f1f8; color:var(--navy); font-size:6.8pt; font-weight:800; letter-spacing:.25px; }
+    .tag.high { background:var(--red-bg); color:#a83a40; }
+    .tag.med { background:var(--orange-bg); color:#a75017; }
+    .tag.low { background:var(--green-bg); color:#217946; }
+    .tag.pilot { background:var(--violet-bg); color:#55409e; }
+    .tag.blue { background:#e1f3fb; color:#096b9f; }
+
+    .callout { border-left:1.6mm solid var(--orange); background:#fff5ec; border-radius:0 3mm 3mm 0; padding:3mm 4mm; }
+    .callout strong:first-child { display:block; color:#a54b17; font-size:8pt; text-transform:uppercase; letter-spacing:.6px; margin-bottom:1mm; }
+    .callout.blue { border-left-color:var(--blue); background:#eef8fd; }
+    .callout.blue strong:first-child { color:var(--navy); }
+    .callout.violet { border-left-color:var(--violet); background:#f4f1ff; }
+    .callout.violet strong:first-child { color:#4a3793; }
+    .callout.green { border-left-color:var(--green); background:#eef9f2; }
+    .callout.green strong:first-child { color:#1f7544; }
+
+    .metric { min-height:28mm; }
+    .metric .value { font-size:22pt; line-height:1; font-weight:900; color:var(--navy); margin:1.5mm 0 1mm; }
+    .metric .label { color:var(--muted); font-size:7.5pt; line-height:1.2; }
+    .scorebar { height:2.8mm; border-radius:3mm; background:#dce8f0; overflow:hidden; margin-top:2mm; }
+    .scorebar > i { display:block; height:100%; border-radius:3mm; background:linear-gradient(90deg,var(--blue),var(--blue-2)); }
+
+    table { width:100%; border-collapse:separate; border-spacing:0; font-size:7.45pt; }
+    th { background:var(--navy); color:white; padding:2.2mm 2.3mm; text-align:left; font-size:7.2pt; line-height:1.18; }
+    th:first-child { border-radius:2mm 0 0 0; }
+    th:last-child { border-radius:0 2mm 0 0; }
+    td { border-bottom:.3mm solid #dce8f0; border-right:.3mm solid #e4edf3; padding:2.05mm 2.3mm; vertical-align:top; line-height:1.22; }
+    td:first-child { border-left:.3mm solid #e4edf3; }
+    tbody tr:nth-child(even) td { background:#f7fbfd; }
+    .decision { font-weight:900; color:var(--navy); }
+
+    .field { border:.35mm solid var(--line); border-radius:2.5mm; padding:3mm 3.5mm; background:#fff; }
+    .field + .field { margin-top:2.5mm; }
+    .field-label { color:var(--blue); font-weight:900; font-size:7.2pt; text-transform:uppercase; letter-spacing:.45px; margin-bottom:1.2mm; }
+    .field p, .field li { font-size:8.15pt; line-height:1.24; }
+    .field.orange { border-color:#f1ccb0; background:#fff9f4; }
+    .field.orange .field-label { color:#b85a1f; }
+    .field.violet { border-color:#d9cff9; background:#faf8ff; }
+    .field.violet .field-label { color:#5a459e; }
+    .field.green { border-color:#cbe8d5; background:#f6fcf8; }
+    .field.green .field-label { color:#26804e; }
+    .field.red { border-color:#efcacc; background:#fff8f8; }
+    .field.red .field-label { color:#ac3f44; }
+    .risk-strip { display:flex; align-items:center; gap:3mm; padding:2.5mm 3mm; border-radius:2.5mm; background:#eef5fa; margin-bottom:3mm; }
+    .risk-strip h3 { margin-right:auto; }
+
+    .flow { display:grid; grid-template-columns:repeat(7,1fr); gap:2.2mm; align-items:stretch; }
+    .flow .step { position:relative; padding:3mm 2.5mm; min-height:33mm; border:.35mm solid #cfe1ed; border-radius:3mm; background:#f6fbfe; }
+    .flow .step:not(:last-child)::after { content:"›"; position:absolute; right:-2.4mm; top:10mm; z-index:2; width:4.7mm; height:4.7mm; border-radius:50%; display:grid; place-items:center; background:var(--blue); color:white; font-weight:900; }
+    .step b { display:block; color:var(--navy); font-size:8.2pt; margin:1.5mm 0 1mm; }
+    .step .n { width:6.5mm; height:6.5mm; border-radius:50%; display:grid; place-items:center; background:var(--navy); color:#fff; font-size:7pt; font-weight:900; }
+
+    .loop { position:relative; min-height:44mm; padding-left:17mm; }
+    .loop .wheel { position:absolute; left:3mm; top:9mm; width:11mm; height:11mm; border:1.4mm solid var(--blue); border-right-color:transparent; border-radius:50%; }
+    .loop .wheel::after { content:""; position:absolute; right:-1.5mm; top:-1mm; border-left:2.5mm solid var(--blue); border-top:1.5mm solid transparent; border-bottom:1.5mm solid transparent; transform:rotate(-32deg); }
+
+    .thermostat { display:grid; grid-template-columns:1fr 1.15fr 1fr; border-radius:3mm; overflow:hidden; border:.35mm solid #d5e2eb; }
+    .thermostat > div { padding:3mm; min-height:26mm; }
+    .thermostat .low { background:#eef5fa; }
+    .thermostat .productive { background:#e8f7ee; border-left:.35mm solid #cbe6d4; border-right:.35mm solid #cbe6d4; }
+    .thermostat .excess { background:#fff0e5; }
+    .thermostat h4 { margin-bottom:1mm; }
+
+    .gate { display:flex; align-items:flex-start; gap:2.7mm; }
+    .gate .badge { flex:none; width:9mm; height:9mm; display:grid; place-items:center; border-radius:50%; background:var(--blue); color:white; font-size:7.5pt; font-weight:900; }
+    .gate + .gate { margin-top:2.2mm; }
+    .gate h4 { margin-bottom:.7mm; }
+
+    .timeline { display:grid; grid-template-columns:repeat(5,1fr); gap:3mm; position:relative; }
+    .timeline::before { content:""; position:absolute; top:7mm; left:8%; right:8%; height:1mm; background:linear-gradient(90deg,var(--blue),var(--violet),var(--green)); z-index:0; }
+    .phase { position:relative; z-index:1; padding-top:14mm; }
+    .phase::before { content:""; position:absolute; top:2.6mm; left:calc(50% - 4.5mm); width:9mm; height:9mm; border-radius:50%; background:white; border:1.5mm solid var(--blue); }
+    .phase .card { min-height:58mm; }
+    .phase.violet-phase::before { border-color:var(--violet); }
+    .phase.green-phase::before { border-color:var(--green); }
+
+    /* Cover */
+    .cover { padding:0; background:#f5fbfe; }
+    .hero { height:87mm; background:linear-gradient(108deg,#073165 0%,#0769a7 58%,#0d8fc4 100%); color:white; position:relative; overflow:hidden; padding:13mm 14mm; }
+    .hero::before { content:""; position:absolute; width:130mm; height:130mm; border-radius:50%; border:18mm solid rgba(255,255,255,.045); right:-25mm; top:-63mm; }
+    .hero::after { content:""; position:absolute; inset:auto 0 0 0; height:1.5mm; background:#82d8f5; }
+    .hero h1 { width:188mm; font-size:31pt; text-shadow:0 1mm 2mm rgba(0,0,0,.18); }
+    .hero h1 em { font-style:normal; color:#85ddfa; }
+    .hero .subtitle { font-size:11.5pt; line-height:1.3; margin-top:4mm; width:176mm; color:#e8f7ff; }
+    .hero .stamp { display:inline-block; margin-top:4.5mm; padding:1.8mm 3.5mm; border:.35mm solid rgba(255,255,255,.55); border-radius:10mm; font-size:7.4pt; font-weight:800; letter-spacing:.7px; text-transform:uppercase; }
+    .skyline { position:absolute; right:0; bottom:1.5mm; width:88mm; height:53mm; opacity:.88; }
+    .building { position:absolute; bottom:0; background:linear-gradient(90deg,rgba(255,255,255,.18),rgba(255,255,255,.34)); border:.35mm solid rgba(255,255,255,.26); }
+    .b1 { left:4mm; width:19mm; height:35mm; }
+    .b2 { left:25mm; width:17mm; height:45mm; }
+    .b3 { left:44mm; width:21mm; height:39mm; }
+    .b4 { left:67mm; width:18mm; height:51mm; }
+    .building::after { content:""; position:absolute; inset:4mm 3mm; background:repeating-linear-gradient(0deg,transparent 0 5mm,rgba(4,43,85,.5) 5mm 6mm),repeating-linear-gradient(90deg,transparent 0 4mm,rgba(4,43,85,.45) 4mm 5mm); }
+    .tech-orbit { position:absolute; right:16mm; top:10mm; width:36mm; height:36mm; border:1mm solid rgba(255,255,255,.65); border-radius:50%; display:grid; place-items:center; font-size:18pt; font-weight:900; color:white; }
+    .tech-orbit::before,.tech-orbit::after { content:""; position:absolute; width:44mm; height:.6mm; background:rgba(255,255,255,.6); }
+    .tech-orbit::before { transform:rotate(45deg); }
+    .tech-orbit::after { transform:rotate(-45deg); }
+    .cover-body { padding:8mm 14mm 11mm; }
+    .cover-cards { display:grid; grid-template-columns:1.1fr 1fr 1fr; gap:4mm; }
+    .cover-card { min-height:63mm; border-radius:4mm; padding:5mm; }
+    .cover-card .big { font-size:18pt; font-weight:900; color:var(--navy); line-height:1.05; margin:3mm 0 2mm; }
+    .cover-bottom { position:absolute; bottom:5mm; left:14mm; right:14mm; display:flex; justify-content:space-between; color:#60758e; font-size:7pt; border-top:.35mm solid #cedeea; padding-top:2.5mm; }
+    .quote { font-size:13pt; line-height:1.28; color:var(--navy); font-weight:700; letter-spacing:-.1px; }
+    .quote::before { content:"“"; color:var(--blue); font-size:28pt; vertical-align:-5mm; margin-right:1mm; }
+
+    .check { color:var(--green); font-weight:900; }
+    .warn { color:var(--orange); font-weight:900; }
+    .cross { color:var(--red); font-weight:900; }
+  </style>
+</head>
+<body>
+
+  <!-- 1 -->
+  <section class="page cover" data-page="1">
+    <div class="hero">
+      <div class="eyebrow" style="color:#a9e7fb;margin-bottom:3mm;">Liderazgo adaptativo · teoría de sistemas · gestión del cambio</div>
+      <h1>Evaluación crítica de experimentos para un presupuesto de Fase 1 <em>apoyado en IA</em></h1>
+      <p class="subtitle">Revisión integral del reto estratégico, la matriz de intervención y la aplicación Cabida, asumida explícitamente desde el rol de <strong style="color:white;">abogado del diablo</strong>.</p>
+      <span class="stamp">Documento ejecutivo para decisión de piloto</span>
+      <div class="tech-orbit">IA</div>
+      <div class="skyline" aria-hidden="true">
+        <div class="building b1"></div><div class="building b2"></div><div class="building b3"></div><div class="building b4"></div>
+      </div>
+    </div>
+    <div class="cover-body">
+      <div class="cover-cards">
+        <div class="cover-card card blue">
+          <div class="eyebrow">Reto estratégico</div>
+          <div class="big">Decidir en minutos, sin fingir certeza</div>
+          <p>Usar indicadores históricos para producir una estimación preliminar rápida, trazable y confiable que apoye la evaluación de compra de lotes.</p>
+        </div>
+        <div class="cover-card card violet">
+          <div class="eyebrow" style="color:#5c46a3;">Objeto evaluado</div>
+          <div class="big">4 experimentos + 1 prototipo funcional</div>
+          <p>Datos históricos, estandarización, integración con IA y validación, contrastados con el flujo real de la aplicación.</p>
+        </div>
+        <div class="cover-card card orange">
+          <div class="eyebrow" style="color:#b65a20;">Juicio ejecutivo</div>
+          <div class="big">Pilotear con puertas de salida</div>
+          <p>La solución es coherente como instrumento de aprendizaje; todavía no es una fuente institucional ni autoriza por sí sola la compra de un lote.</p>
+        </div>
+      </div>
+    </div>
+    <div class="cover-bottom">
+      <span>Proyecto Cabida · Presupuestos preliminares Fase 1</span>
+      <span>Versión de análisis 1.0 · 9 de octubre de 2026 · COP</span>
+    </div>
+  </section>
+
+  <!-- 2 -->
+  <section class="page" data-page="2">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Alcance y criterio de lectura<br/>Aplicación + matriz + sistema organizacional</div></header>
+    <div class="section-bar"><span class="num">0</span><span class="title">Mandato, alcance y postura crítica</span><span class="sub">Cómo leer este informe</span></div>
+    <div class="grid-2" style="grid-template-columns:1.05fr .95fr;">
+      <div>
+        <div class="card blue" style="margin-bottom:3mm;">
+          <div class="icon-row"><span class="icon">?</span><div><h3>Pregunta que realmente debe responderse</h3><p class="quote">¿Puede la organización producir una estimación temprana suficientemente útil para decidir, con incertidumbre explícita, trazabilidad y responsabilidad humana?</p></div></div>
+        </div>
+        <div class="card">
+          <h3>Alcance de la revisión</h3>
+          <ul>
+            <li>Reformula el reto para evitar que “implementar IA” se convierta en el objetivo en sí mismo.</li>
+            <li>Distingue trabajo <strong>técnico</strong> —datos, reglas, arquitectura, métricas— de trabajo <strong>adaptativo</strong> —confianza, poder, hábitos, pérdidas y responsabilidad.</li>
+            <li>Evalúa cada experimento contra pertinencia, tensión, riesgos, condiciones, viabilidad, exposición, ajustes, aprendizaje y decisión.</li>
+            <li>Contrasta la matriz con el flujo funcional verificable de la aplicación y propone puertas de control antes de institucionalizar.</li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="callout" style="margin-bottom:3mm;">
+          <strong>Hallazgo incómodo</strong>
+          <p>El reto está formulado como una solución: “desarrollar un modelo de IA”. La causa estratégica es otra: la organización no logra estimar a la velocidad de las oportunidades sin depender de trabajo manual, criterios tácitos y datos poco comparables. La IA es una hipótesis de intervención, no el propósito.</p>
+        </div>
+        <div class="card violet" style="margin-bottom:3mm;">
+          <h3>Evidencia considerada</h3>
+          <ul>
+            <li>Matriz/lienzo de liderazgo estratégico entregado.</li>
+            <li>Definición del caso, actores, retos y experimentos suministrados.</li>
+            <li>Código fuente verificable del MVP, commit <span class="mono">7e3df8c</span>, y sus pruebas.</li>
+            <li>Flujo publicado informado: <span class="mono">tanstack-start-bloom.lovable.app</span>.</li>
+          </ul>
+        </div>
+        <div class="card orange">
+          <h3>Límite metodológico</h3>
+          <p>La revisión funcional se apoya en el código, las pruebas y el flujo suministrado. La disponibilidad del despliegue público debe confirmarse desde la red corporativa. La evaluación organizacional requiere todavía evidencia de uso real, errores, decisiones y comportamiento de actores.</p>
+        </div>
+      </div>
+    </div>
+    <div class="callout blue" style="margin-top:4mm;"><strong>Principio rector</strong><p><strong>Una interfaz convincente demuestra capacidad de prototipo, no validez del modelo.</strong> El valor aparece cuando el sistema puede explicar de dónde sale cada cifra, qué incertidumbre conserva, quién la valida y qué decisión puede —o no puede— soportar.</p></div>
+    <footer class="page-foot"><span>Documento para discusión y aprendizaje; no sustituye validación técnica ni decisión directiva.</span><span class="page-no">02 / 18</span></footer>
+  </section>
+
+  <!-- 3 -->
+  <section class="page" data-page="3">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Lectura ejecutiva<br/>Juicio de preparación</div></header>
+    <div class="section-bar"><span class="num">1</span><span class="title">Veredicto ejecutivo</span><span class="sub">Continuar, pero no institucionalizar todavía</span></div>
+    <div class="grid-4" style="margin-bottom:4mm;">
+      <div class="card metric blue"><span class="tag blue">ALINEACIÓN</span><div class="value">Alta</div><div class="label">El flujo de la aplicación responde al propósito del lienzo y a los cuatro experimentos.</div><div class="scorebar"><i style="width:82%"></i></div></div>
+      <div class="card metric green"><span class="tag low">PROTOTIPO</span><div class="value">Avanzado</div><div class="label">Selector, áreas, referentes, cálculo, edición, guardado, resumen y PDF están representados.</div><div class="scorebar"><i style="width:88%;background:var(--green)"></i></div></div>
+      <div class="card metric orange"><span class="tag med">DATOS / GOBIERNO</span><div class="value">Medio–bajo</div><div class="label">Faltan criterios institucionales de calidad, vigencia, comparabilidad, roles y versionado.</div><div class="scorebar"><i style="width:42%;background:var(--orange)"></i></div></div>
+      <div class="card metric red"><span class="tag high">RIESGO ADAPTATIVO</span><div class="value">Medio–alto</div><div class="label">Puede producir sobreconfianza, rechazo profesional o responsabilidad difusa.</div><div class="scorebar"><i style="width:69%;background:var(--red)"></i></div></div>
+    </div>
+    <div class="grid-2" style="grid-template-columns:1.08fr .92fr;">
+      <div class="card">
+        <h3>Cinco conclusiones que condicionan la decisión</h3>
+        <div class="gate" style="margin-top:2mm;"><span class="badge">1</span><div><h4>La raíz no es la ausencia de IA.</h4><p>Es la combinación de datos no homogéneos, conocimiento tácito, entrada tardía y responsabilidades ambiguas.</p></div></div>
+        <div class="gate"><span class="badge">2</span><div><h4>El motor actual es determinístico.</h4><p>Produce cálculo y recomendaciones basadas en reglas locales; eso es valioso y explicable, pero no equivale todavía a IA generativa o predictiva.</p></div></div>
+        <div class="gate"><span class="badge">3</span><div><h4>La precisión agregada puede engañar.</h4><p>Errores por capítulos pueden compensarse y ocultar sesgos críticos de parqueaderos, estructura, urbanismo o preliminares.</p></div></div>
+        <div class="gate"><span class="badge">4</span><div><h4>La persistencia local sirve al piloto, no a la empresa.</h4><p><span class="mono">localStorage</span> no ofrece fuente única, acceso multiusuario, respaldo, permisos ni auditoría institucional.</p></div></div>
+        <div class="gate"><span class="badge">5</span><div><h4>La confianza debe ganarse con desacuerdo visible.</h4><p>Registrar cambios, supuestos y razones del juicio humano es más importante que lograr aceptación rápida.</p></div></div>
+      </div>
+      <div>
+        <div class="card violet" style="margin-bottom:3mm;">
+          <h3>Decisión general recomendada</h3>
+          <p style="font-size:19pt;font-weight:900;color:#503c97;line-height:1.05;margin:3mm 0;">PILOTO CONTROLADO</p>
+          <p>Operar en modo sombra, sin delegar la compra del lote al modelo. Escalar solo si supera umbrales definidos antes de observar resultados.</p>
+        </div>
+        <div class="callout green" style="margin-bottom:3mm;"><strong>Valor ya creado</strong><p>La aplicación materializa el proceso, vuelve discutibles los supuestos y acorta el ciclo de aprendizaje. Ese es hoy su principal activo estratégico.</p></div>
+        <div class="callout"><strong>No autorizar todavía</strong><p>No usar una cifra sin rango ni nivel de confianza; no conectar IA abierta con datos sensibles; no convertir el resultado en aprobación automática de inversión.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Documento para discusión y aprendizaje; no sustituye validación técnica ni decisión directiva.</span><span class="page-no">03 / 18</span></footer>
+  </section>
+
+  <!-- 4 -->
+  <section class="page" data-page="4">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Lienzo reformulado<br/>Coherencia reto–intervención</div></header>
+    <div class="section-bar"><span class="num">2</span><span class="title">Canvas estratégico alineado</span><span class="sub">La aplicación como hipótesis, no como fin</span></div>
+    <div class="grid-2" style="grid-template-columns:1fr 1fr;gap:3mm;margin-bottom:3mm;">
+      <div class="card blue">
+        <div class="icon-row"><span class="icon">1</span><div><h3>Reto estratégico</h3><p>Reducir radicalmente el tiempo de elaboración del presupuesto preliminar de Fase 1 para decidir sobre oportunidades de compra de lotes, <strong>sin sacrificar trazabilidad, comparabilidad, criterio técnico ni responsabilidad</strong>.</p></div></div>
+      </div>
+      <div class="grid-2" style="gap:3mm;">
+        <div class="card blue"><h3>1.1 Trabajo técnico</h3><ul class="small"><li>Depurar y homologar históricos.</li><li>Definir variables, capítulos y unidades.</li><li>Normalizar fecha, ciudad, alcance y madurez.</li><li>Diseñar cálculo, seguridad y trazabilidad.</li></ul></div>
+        <div class="card violet"><h3>1.2 Trabajo adaptativo</h3><ul class="small"><li>Confiar sin delegar el juicio.</li><li>Ceder autonomía a reglas comunes.</li><li>Trabajar con incertidumbre explícita.</li><li>Acordar quién valida, usa y responde.</li></ul></div>
+      </div>
+    </div>
+    <div class="section-bar" style="min-height:10mm;margin-bottom:3mm;"><span class="num" style="width:10mm;height:10mm;font-size:10pt;">3</span><span class="title" style="font-size:12.5pt;">Actores, pérdidas y punto de apalancamiento</span></div>
+    <div class="grid-4" style="margin-bottom:3mm;">
+      <div class="card blue"><h3>Impulsores</h3><p><strong>Presupuestos:</strong> dueño de datos, reglas y validación.<br/><strong>Nuevos Negocios:</strong> usuario y fuente de retroalimentación.<br/><strong>Gerencia:</strong> define tolerancia y decide.</p></div>
+      <div class="card green"><h3>Habilitadores</h3><p><strong>Diseño/Planeación:</strong> áreas y tipologías.<br/><strong>Ingeniería:</strong> criterios y ajustes.<br/><strong>Tecnología/Datos:</strong> plataforma, seguridad y auditoría.</p></div>
+      <div class="card orange"><h3>Pérdidas percibidas</h3><p>Autonomía del experto; exposición de errores históricos; mayor carga de captura; temor a reemplazo; demora por controles; responsabilidad sobre una cifra preliminar.</p></div>
+      <div class="card violet"><h3>Apalancamiento</h3><p>Convertir indicadores y conocimiento técnico ya existentes en un catálogo comparable, versionado y discutible que conecte áreas, supuestos y decisión.</p></div>
+    </div>
+    <div class="grid-2" style="grid-template-columns:1.25fr .75fr;gap:3mm;">
+      <div class="card">
+        <h3>Experimentos y secuencia lógica</h3>
+        <table style="margin-top:2mm;"><tbody>
+          <tr><td style="width:8%;"><span class="tag blue">E1</span></td><td><strong>Depurar históricos</strong></td><td>Crear conjunto dorado y reglas de calidad.</td><td><span class="tag med">AJUSTAR</span></td></tr>
+          <tr><td><span class="tag blue">E2</span></td><td><strong>Estandarizar Fase 1</strong></td><td>Núcleo mínimo + extensiones por tipología.</td><td><span class="tag pilot">PILOTEAR</span></td></tr>
+          <tr><td><span class="tag blue">E3</span></td><td><strong>Integrar IA</strong></td><td>Cálculo auditable + IA acotada en modo sombra.</td><td><span class="tag pilot">PILOTEAR</span></td></tr>
+          <tr><td><span class="tag blue">E4</span></td><td><strong>Validar precisión</strong></td><td>Retrospectiva ciega + prospectiva + ejecutado.</td><td><span class="tag low">IMPLEMENTAR</span></td></tr>
+        </tbody></table>
+      </div>
+      <div class="card orange"><h3>Éxito redefinido</h3><ul><li>Menor tiempo de estimación.</li><li>Resultado reproducible y trazable.</li><li>Error dentro del umbral por capítulo.</li><li>Supuestos y rango explícitos.</li><li>Decisiones mejor informadas, no necesariamente más compras.</li></ul></div>
+    </div>
+    <footer class="page-foot"><span>Documento para discusión y aprendizaje; no sustituye validación técnica ni decisión directiva.</span><span class="page-no">04 / 18</span></footer>
+  </section>
+
+  <!-- 5 -->
+  <section class="page" data-page="5">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Teoría de sistemas<br/>Dinámicas que el prototipo puede amplificar</div></header>
+    <div class="section-bar"><span class="num">3</span><span class="title">Diagnóstico sistémico y regulación de la tensión</span><span class="sub">Ver patrones, no solo tareas</span></div>
+    <div class="grid-3" style="margin-bottom:4mm;">
+      <div class="card loop blue"><span class="wheel"></span><h3>Bucle R1 · Dependencia del experto</h3><p>Información inconsistente → corrección manual → saber tácito → dependencia de pocas personas → se aplaza la estandarización → vuelve la inconsistencia.</p><p class="tiny muted" style="margin-top:2mm;"><strong>Intervención:</strong> catálogo versionado, decisiones de homologación visibles y revisión por pares.</p></div>
+      <div class="card loop orange"><span class="wheel" style="border-color:var(--orange);border-right-color:transparent;"></span><h3>Bucle R2 · Automatización prematura</h3><p>Presión por velocidad → automatizar antes de depurar → errores convincentes → desconfianza → doble trabajo manual → abandono o presión por “mejor IA”.</p><p class="tiny muted" style="margin-top:2mm;"><strong>Intervención:</strong> puertas de calidad y modo sombra antes de escalar.</p></div>
+      <div class="card loop violet"><span class="wheel" style="border-color:var(--violet);border-right-color:transparent;"></span><h3>Bucle R3 · Responsabilidad difusa</h3><p>Roles ambiguos → todos cuestionan → nadie corrige la fuente → persiste el error → baja la confianza → se evita asumir la decisión.</p><p class="tiny muted" style="margin-top:2mm;"><strong>Intervención:</strong> dueño por dato, validador por salida y decisor explícito.</p></div>
+    </div>
+    <div class="grid-2" style="grid-template-columns:1.15fr .85fr;gap:4mm;">
+      <div>
+        <div class="card" style="margin-bottom:3mm;">
+          <h3>Cadena causal crítica</h3>
+          <div style="display:flex;align-items:stretch;gap:2mm;margin-top:3mm;">
+            <div class="card blue" style="flex:1;padding:2.5mm;"><h4>Datos comparables</h4><p class="tiny">Fuente, fecha, ubicación, unidad, alcance y madurez.</p></div>
+            <div style="align-self:center;color:var(--blue);font-weight:900;">→</div>
+            <div class="card violet" style="flex:1;padding:2.5mm;"><h4>Reglas discutibles</h4><p class="tiny">Selección de referentes, exclusiones, ajustes y rango.</p></div>
+            <div style="align-self:center;color:var(--blue);font-weight:900;">→</div>
+            <div class="card green" style="flex:1;padding:2.5mm;"><h4>Confianza calibrada</h4><p class="tiny">Uso proporcional a evidencia y nivel de incertidumbre.</p></div>
+            <div style="align-self:center;color:var(--blue);font-weight:900;">→</div>
+            <div class="card orange" style="flex:1;padding:2.5mm;"><h4>Mejor decisión</h4><p class="tiny">Gerencia conserva responsabilidad y criterio.</p></div>
+          </div>
+        </div>
+        <div class="callout"><strong>Contradicción central</strong><p>La organización pide rapidez cuando la información temprana es incompleta. Pretender eliminar esa incertidumbre con IA crea falsa precisión. El diseño correcto hace visible la incertidumbre, limita el uso y acelera la conversación.</p></div>
+      </div>
+      <div>
+        <h3 style="margin-bottom:2mm;">“Olla de presión” adaptativa</h3>
+        <div class="thermostat">
+          <div class="low"><h4>Tensión insuficiente</h4><p class="small">Se prueba sin casos reales; nadie cambia hábitos; el MVP se vuelve demostración.</p></div>
+          <div class="productive"><h4>Tensión productiva</h4><p class="small">Casos reales en sombra, desacuerdos registrados, umbrales previos, revisión segura.</p></div>
+          <div class="excess"><h4>Tensión excesiva</h4><p class="small">Se vincula a compra o desempeño individual antes de validar; aparecen defensa y ocultamiento.</p></div>
+        </div>
+        <div class="card blue" style="margin-top:3mm;"><h3>Capacidad actual del sistema</h3><p><span class="tag med">MEDIA–BAJA</span></p><p style="margin-top:2mm;">Hay datos, experiencia, actores y prototipo; faltan gobernanza, estándares de comparabilidad, umbrales, versiones, seguridad y un espacio donde discrepar sin castigo.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Documento para discusión y aprendizaje; no sustituye validación técnica ni decisión directiva.</span><span class="page-no">05 / 18</span></footer>
+  </section>
+
+  <!-- 6 -->
+  <section class="page" data-page="6">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Aplicación Cabida<br/>Lectura funcional del MVP</div></header>
+    <div class="section-bar"><span class="num">4</span><span class="title">La aplicación como solución operativa y objeto de aprendizaje</span><span class="sub">Qué hace y qué aún no demuestra</span></div>
+    <div class="flow" style="margin-bottom:4mm;">
+      <div class="step"><span class="n">1</span><b>Seleccionar proyecto</b><p class="tiny">Histórico o presupuesto activo.</p></div>
+      <div class="step"><span class="n">2</span><b>Cargar áreas</b><p class="tiny">Entrada manual o Excel.</p></div>
+      <div class="step"><span class="n">3</span><b>Elegir referentes</b><p class="tiny">Proyecto e indicador por partida.</p></div>
+      <div class="step"><span class="n">4</span><b>Ajustar cálculo</b><p class="tiny">Cantidad × tarifa + ajuste.</p></div>
+      <div class="step"><span class="n">5</span><b>Guardar proyecto</b><p class="tiny">Editar, duplicar o eliminar.</p></div>
+      <div class="step"><span class="n">6</span><b>Revisar resumen</b><p class="tiny">Métricas y gráficas comparativas.</p></div>
+      <div class="step"><span class="n">7</span><b>Analizar / PDF</b><p class="tiny">Reglas locales y reporte ejecutivo.</p></div>
+    </div>
+    <div class="grid-3" style="margin-bottom:4mm;">
+      <div class="card green"><h3>Capacidades verificables</h3><ul><li>45 indicadores, 7 proyectos y trazabilidad a hoja/celda.</li><li>Referentes mixtos por capítulo y recálculo editable.</li><li>Separación de urbanismo externo y prevención de doble conteo.</li><li>Resumen por proyecto, CSV y PDF.</li><li>Pruebas automatizadas y conciliación con escenarios del Excel.</li></ul></div>
+      <div class="card violet"><h3>Qué significa “IA” hoy</h3><p>El análisis actual es <strong>determinístico</strong>: aplica reglas a los datos cargados para producir alertas, comparaciones y recomendaciones. No consulta mercado, normativa ni índices en tiempo real; no aprende del uso ni predice costos.</p><div class="callout violet" style="margin-top:3mm;padding:2.3mm;"><strong>No confundir</strong><p class="small">Automatización explicable ≠ modelo predictivo; texto convincente ≠ evidencia.</p></div></div>
+      <div class="card orange"><h3>Límites institucionales</h3><ul><li>Persistencia en el navegador, no base común.</li><li>Sin autenticación, roles ni aprobación formal.</li><li>Sin versionado central del catálogo o bitácora inmutable.</li><li>Sin actualización automática de precios.</li><li>Sin intervalos de confianza ni backtesting documentado.</li></ul></div>
+    </div>
+    <div class="grid-2">
+      <div class="callout green"><strong>Coherencia con el lienzo</strong><p>La aplicación convierte los experimentos en un flujo observable: elegir referentes, explicitar áreas, editar supuestos, guardar una alternativa, comparar y reportar. Permite ensayar nuevas prácticas sin construir primero toda la plataforma empresarial.</p></div>
+      <div class="callout"><strong>Riesgo de sobreinterpretación</strong><p>Que el prototipo calcule rápido y exporte PDF puede hacer que una hipótesis parezca aprobada. Toda salida debe mostrar “Preliminar Fase 1”, nivel de incertidumbre, fecha base, fuentes, exclusiones y responsable de validación.</p></div>
+    </div>
+    <footer class="page-foot"><span>Documento para discusión y aprendizaje; no sustituye validación técnica ni decisión directiva.</span><span class="page-no">06 / 18</span></footer>
+  </section>
+
+  <!-- 7 -->
+  <section class="page" data-page="7">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Aplicación ↔ matriz<br/>Trazabilidad de la solución</div></header>
+    <div class="section-bar"><span class="num">5</span><span class="title">Matriz de alineación aplicación–canvas</span><span class="sub">Evidencia, brecha y puerta de control</span></div>
+    <table>
+      <thead><tr><th style="width:16%">Promesa del canvas</th><th style="width:14%">Experimento</th><th style="width:24%">Evidencia en la aplicación</th><th style="width:24%">Brecha crítica</th><th style="width:15%">Puerta antes de escalar</th><th style="width:7%">Estado</th></tr></thead>
+      <tbody>
+        <tr><td>Usar conocimiento histórico.</td><td>E1 · Depuración</td><td>Biblioteca de 45 indicadores de 7 referentes; fuente por hoja/celda; importación Excel.</td><td>No acredita vigencia, comparabilidad geográfica, madurez, alcance ni calidad aprobada por dueño.</td><td>Catálogo dorado aprobado, versionado y con regla de descarte.</td><td><span class="tag med">PARCIAL</span></td></tr>
+        <tr><td>Estandarizar entrada de Fase 1.</td><td>E2 · Variables / costos</td><td>Plantilla de áreas, partidas por capítulo, unidades y tarifa base.</td><td>No hay diccionario institucional ni núcleo mínimo diferenciado por tipología; faltan desconocidos explícitos.</td><td>Diccionario + “conocido / supuesto / estimado” + SLA de entrada.</td><td><span class="tag med">PARCIAL</span></td></tr>
+        <tr><td>Estimar en minutos.</td><td>E3 · Integración</td><td>Recálculo inmediato, selección inicial y cambio de referente, ajustes editables.</td><td>Selección no se ha validado como recomendación predictiva; motor actual es determinístico.</td><td>Modo sombra, arquitectura segura y explicación por cada sugerencia.</td><td><span class="tag low">MVP</span></td></tr>
+        <tr><td>Conservar criterio humano.</td><td>E2 + E3</td><td>Usuario cambia referente y ajuste; puede editar y duplicar presupuesto.</td><td>No registra de manera central la razón del cambio, quién validó ni qué versión usó.</td><td>Bitácora de decisión, roles y firma de validación.</td><td><span class="tag med">PARCIAL</span></td></tr>
+        <tr><td>Generar confianza y trazabilidad.</td><td>E4 · Validación</td><td>Fuente, comparaciones, alertas, análisis y PDF; pruebas de cálculo.</td><td>Pruebas técnicas no equivalen a exactitud frente a casos no vistos o ejecutados.</td><td>Backtesting ciego y umbrales por capítulo/segmento.</td><td><span class="tag med">PARCIAL</span></td></tr>
+        <tr><td>Apoyar decisión de lotes.</td><td>Todos</td><td>Resumen ejecutivo por proyecto con composición y observaciones.</td><td>No integra rentabilidad, POT, licencias, suelo, redes ni criterio de “seguir / parar”.</td><td>Protocolo de decisión que declare usos permitidos y límites.</td><td><span class="tag high">BRECHA</span></td></tr>
+        <tr><td>Uso organizacional.</td><td>Escalamiento</td><td>El flujo es simple y puede ser probado por usuarios reales.</td><td><span class="mono">localStorage</span>, sin multiusuario, respaldo, permisos, seguridad ni auditoría.</td><td>Backend institucional, identidad, permisos, versiones y recuperación.</td><td><span class="tag high">BRECHA</span></td></tr>
+      </tbody>
+    </table>
+    <div class="grid-2" style="margin-top:4mm;">
+      <div class="callout green"><strong>Alineación sustantiva</strong><p>El MVP sí coincide con la lógica del canvas: reduce el ciclo, vuelve visibles los referentes, permite intervención humana y produce una salida trazable. No es un “mockup vacío”.</p></div>
+      <div class="callout"><strong>Condición de honestidad</strong><p>Debe presentarse como <strong>prototipo de estimación preliminar y aprendizaje</strong>. La palabra IA solo debe usarse para una capacidad que se pueda identificar, auditar y validar por separado.</p></div>
+    </div>
+    <footer class="page-foot"><span>Documento para discusión y aprendizaje; no sustituye validación técnica ni decisión directiva.</span><span class="page-no">07 / 18</span></footer>
+  </section>
+
+  <!-- 8 -->
+  <section class="page" data-page="8">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Brechas de preparación<br/>Condiciones de institucionalización</div></header>
+    <div class="section-bar orange"><span class="num">6</span><span class="title">Lo que falta antes de llamar a esto “modelo institucional”</span><span class="sub">Cuatro capas de preparación</span></div>
+    <div class="grid-4" style="margin-bottom:4mm;">
+      <div class="card blue"><div class="icon-row"><span class="icon">D</span><div><h3>Datos</h3><ul class="small"><li>Fecha base y actualización.</li><li>Ciudad y condiciones logísticas.</li><li>Calculado / contratado / ejecutado.</li><li>Alcance, exclusiones y madurez.</li><li>Reglas de calidad y descarte.</li><li>Dueño y versión por dato.</li></ul></div></div></div>
+      <div class="card violet"><div class="icon-row"><span class="icon violet">M</span><div><h3>Modelo</h3><ul class="small"><li>Criterio de comparables.</li><li>Separar total y desglose.</li><li>Rangos e incertidumbre.</li><li>Sesgo/error por capítulo.</li><li>Explicación y reproducibilidad.</li><li>Regla de parada/reentreno.</li></ul></div></div></div>
+      <div class="card orange"><div class="icon-row"><span class="icon orange">T</span><div><h3>Tecnología</h3><ul class="small"><li>Base multiusuario.</li><li>Identidad y permisos.</li><li>Auditoría inmutable.</li><li>Copias y recuperación.</li><li>Seguridad de datos/IA.</li><li>Ambientes y despliegue.</li></ul></div></div></div>
+      <div class="card green"><div class="icon-row"><span class="icon green">O</span><div><h3>Organización</h3><ul class="small"><li>Propietarios y aprobadores.</li><li>Uso permitido de la cifra.</li><li>Tolerancia de error.</li><li>Espacio de revisión segura.</li><li>Capacitación por rol.</li><li>Métrica de aprendizaje.</li></ul></div></div></div>
+    </div>
+    <div class="grid-2" style="grid-template-columns:1.12fr .88fr;gap:4mm;">
+      <div class="card">
+        <h3>Puertas de preparación — no pasar por entusiasmo</h3>
+        <table style="margin-top:2mm;"><thead><tr><th>Puerta</th><th>Pregunta de salida</th><th>Evidencia mínima</th><th>Si no se cumple</th></tr></thead><tbody>
+          <tr><td><strong>G0 · Propósito</strong></td><td>¿Qué decisión puede apoyar?</td><td>Mandato, límites, sponsor y responsable.</td><td>Aplazar piloto.</td></tr>
+          <tr><td><strong>G1 · Calidad</strong></td><td>¿Los referentes son comparables?</td><td>Conjunto dorado y diccionario aprobados.</td><td>No integrar IA.</td></tr>
+          <tr><td><strong>G2 · Seguridad</strong></td><td>¿Puede operar sin exponer datos?</td><td>Arquitectura, acceso, bitácora y respaldo.</td><td>Solo entorno aislado.</td></tr>
+          <tr><td><strong>G3 · Desempeño</strong></td><td>¿Supera al proceso actual?</td><td>Error, sesgo, rango, tiempo y trazabilidad.</td><td>Ajustar o detener.</td></tr>
+          <tr><td><strong>G4 · Adopción</strong></td><td>¿Los actores entienden y responden?</td><td>Uso real, razones de override y roles.</td><td>No institucionalizar.</td></tr>
+        </tbody></table>
+      </div>
+      <div>
+        <div class="callout" style="margin-bottom:3mm;"><strong>Riesgo oculto</strong><p>La organización podría invertir en IA para evitar una conversación incómoda sobre estándares, responsabilidades y calidad histórica. Ninguna integración tecnológica corrige por sí sola ese déficit de gobierno.</p></div>
+        <div class="card blue" style="margin-bottom:3mm;"><h3>Preguntas pendientes que cambian el diseño</h3><ul><li>¿Cuántos casos completos y ejecutados existen por tipología, ciudad y año?</li><li>¿Qué error tolera cada decisión y en qué capítulo?</li><li>¿Cómo se actualizan precios y condiciones regionales?</li><li>¿Quién puede corregir una fuente y quién autoriza una versión?</li></ul></div>
+        <div class="callout green"><strong>Regla de avance</strong><p>La plataforma no debe avanzar una fase por haber completado desarrollo; avanza cuando el sistema aporta la evidencia de salida acordada.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Documento para discusión y aprendizaje; no sustituye validación técnica ni decisión directiva.</span><span class="page-no">08 / 18</span></footer>
+  </section>
+
+  <!-- 9 -->
+  <section class="page" data-page="9">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E1</span> EXPERIMENTO 1</div><div class="meta">Base histórica<br/>Diagnóstico crítico</div></header>
+    <div class="section-bar"><span class="num">1</span><span class="title">Consolidar y depurar indicadores históricos</span><span class="sub">Evaluación · parte 1 de 2</span></div>
+    <div class="risk-strip"><span class="tag med">CAPACIDAD: MEDIA</span><span class="tag med">RIESGO: MEDIO</span><span class="tag blue">EXPOSICIÓN: PRUEBA LIMITADA</span><h3>Pertinencia: alta, si produce comparabilidad; baja, si solo ordena archivos.</h3></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field"><div class="field-label">Experimento evaluado</div><p>Consolidar y depurar indicadores históricos de proyectos calculados y ejecutados para construir una base utilizable por el presupuesto preliminar de Fase 1.</p></div>
+        <div class="field blue"><div class="field-label">Reto estratégico asociado</div><p>Reducir el tiempo de estimación sin perder trazabilidad ni confiabilidad, transformando conocimiento histórico disperso en referentes explícitos y reutilizables.</p></div>
+        <div class="field"><div class="field-label">Pertinencia frente al reto estratégico</div><p>Ataca una causa raíz: la inconsistencia y dispersión de la memoria de costos. Sin embargo, <strong>depurar no vuelve comparables los casos automáticamente</strong>. Una base ordenada pero sin fecha, ciudad, alcance, madurez y exclusiones sigue siendo una fuente de falsa precisión.</p></div>
+        <div class="field"><div class="field-label">Problema técnico identificado</div><p>Fuentes con capítulos, unidades y alcances distintos; combinación de presupuestado, contratado y ejecutado; duplicados o desgloses; años y ubicaciones heterogéneos; ausencia de regla de actualización, descarte y reconciliación.</p></div>
+      </div>
+      <div>
+        <div class="field violet"><div class="field-label">Desafío adaptativo identificado</div><p>Acordar qué dato se considera válido, quién es su dueño y qué prácticas históricas deben dejarse atrás. El ejercicio expone inconsistencias y conocimiento tácito de los expertos, lo que puede sentirse como pérdida de autonomía o juicio sobre su desempeño.</p></div>
+        <div class="field orange"><div class="field-label">Qué tensión generaría en el sistema</div><p>Tensión entre transparencia y protección reputacional; entre velocidad y rigor; y entre una taxonomía común y la singularidad legítima de cada proyecto. Es productiva si se trata como aprendizaje y no como auditoría punitiva.</p></div>
+        <div class="field red"><div class="field-label">Qué actores podrían resistirse y por qué</div><ul><li><strong>Presupuestadores tradicionales:</strong> exposición de decisiones pasadas y pérdida de discrecionalidad.</li><li><strong>Costos, obra e ingeniería:</strong> temor a ser evaluados con datos fuera de contexto.</li><li><strong>Áreas fuente:</strong> carga adicional de reconstruir metadatos o corregir inconsistencias.</li><li><strong>Gerencia:</strong> frustración si la depuración no produce resultados rápidos.</li></ul></div>
+        <div class="field green"><div class="field-label">Capacidad actual del sistema para soportar esa tensión: Media</div><p>Existen históricos, expertos y un catálogo funcional. La capacidad baja cuando no hay patrocinio para resolver controversias, reglas de descarte ni protección para reportar errores sin culpabilización.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 1 · El dato debe ser útil para comparar, no solo fácil de almacenar.</span><span class="page-no">09 / 18</span></footer>
+  </section>
+
+  <!-- 10 -->
+  <section class="page" data-page="10">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E1</span> EXPERIMENTO 1</div><div class="meta">Diseño de implementación<br/>Decisión y aprendizaje</div></header>
+    <div class="section-bar"><span class="num">1</span><span class="title">Depurar para aprender, no para perfeccionar indefinidamente</span><span class="sub">Evaluación · parte 2 de 2</span></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field orange"><div class="field-label">Riesgo de implementación: Medio</div><p>Puede institucionalizar “basura bien organizada”, consumir meses sin probar valor o eliminar casos atípicos que contienen aprendizaje. Riesgo manejable con una muestra limitada y decisiones de calidad visibles.</p></div>
+        <div class="field"><div class="field-label">Condiciones mínimas para aplicarlo</div><ul><li>Sponsor y dueño del dato; responsables por fuente.</li><li>Originales inmutables y bitácora de transformación.</li><li>Diccionario de capítulo, unidad, alcance, fecha base, ubicación y exclusión.</li><li>Separación de calculado / contratado / ejecutado y total / desglose.</li><li>Reglas de calidad, descarte, actualización y resolución de controversias.</li></ul></div>
+        <div class="field blue"><div class="field-label">Viabilidad práctica</div><p><strong>Alta para un subconjunto; baja para limpiar todo de una vez.</strong> Iniciar con 8–12 casos diversos y completos, o con dos tipologías prioritarias. El MVP ya ofrece una estructura inicial y trazabilidad de origen.</p></div>
+        <div class="field violet"><div class="field-label">Nivel de exposición y seguridad</div><p><strong>Riesgo medio · prueba limitada.</strong> Trabajar en un repositorio controlado, con acceso por rol y revisión no punitiva. No publicar comparaciones entre personas o equipos.</p></div>
+      </div>
+      <div>
+        <div class="field"><div class="field-label">Ajustes recomendados</div><ol><li>Construir un <strong>conjunto dorado</strong>, no limpiar el universo completo.</li><li>Asignar una calificación de calidad y permitir “no comparable”.</li><li>Normalizar tiempo y geografía por reglas explícitas, conservando valor original.</li><li>Registrar por qué se homologó, excluyó o seleccionó cada indicador.</li><li>Revisar atípicos antes de eliminarlos; pueden revelar cambio de alcance.</li></ol></div>
+        <div class="field green"><div class="field-label">Indicadores de aprendizaje</div><ul><li>% de campos críticos completos y casos reconciliados.</li><li>Tiempo para preparar un nuevo referente y número de ciclos de corrección.</li><li>Acuerdo entre dos revisores sobre comparabilidad y capítulo.</li><li>% descartado y causas; controversias abiertas/cerradas.</li><li>Diferencia entre total fuente y total homologado; errores de doble conteo.</li></ul></div>
+        <div class="field green"><div class="field-label">Decisión recomendada: Ajustar</div><p><strong>Iniciar ahora, de forma iterativa.</strong> La salida no es “base limpia”; es un pequeño conjunto de referentes comparables, con calidad conocida, que permita someter a prueba los demás experimentos.</p></div>
+        <div class="field red"><div class="field-label">Argumento final como abogado del diablo</div><p>La organización puede sentirse segura al ver filas ordenadas y colores de calidad. Eso no prueba que Serraclara, Arbore o Pinar sean comparables con el nuevo lote. Si no se conserva contexto, el experimento convierte datos viejos en autoridad aparente. <strong>Una base más limpia puede producir un error más convincente.</strong></p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 1 · Decisión: AJUSTAR e iniciar iterativamente.</span><span class="page-no">10 / 18</span></footer>
+  </section>
+
+  <!-- 11 -->
+  <section class="page" data-page="11">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E2</span> EXPERIMENTO 2</div><div class="meta">Estandarización Fase 1<br/>Diagnóstico crítico</div></header>
+    <div class="section-bar green"><span class="num">2</span><span class="title">Estandarizar variables y estructura de costos</span><span class="sub">Evaluación · parte 1 de 2</span></div>
+    <div class="risk-strip"><span class="tag high">CAPACIDAD: BAJA</span><span class="tag med">RIESGO: MEDIO</span><span class="tag pilot">EXPOSICIÓN: PILOTO 1–2 TIPOLOGÍAS</span><h3>Pertinencia: alta; el peligro es confundir estándar con información perfecta.</h3></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field"><div class="field-label">Experimento evaluado</div><p>Estandarizar las variables mínimas de entrada y la estructura de costos para estimaciones preliminares de Fase 1.</p></div>
+        <div class="field blue"><div class="field-label">Reto estratégico asociado</div><p>Recibir información de Diseño, Planeación, Ingeniería y Nuevos Negocios de forma suficientemente consistente para producir estimaciones rápidas y comparables.</p></div>
+        <div class="field"><div class="field-label">Pertinencia frente al reto estratégico</div><p>Ataca una segunda causa raíz: entradas incompletas o cambiantes y capítulos no equivalentes. Pero un formulario más largo puede convertirse en barrera de oportunidad. El estándar debe permitir decidir bajo incertidumbre, no esperar a que Fase 1 deje de ser temprana.</p></div>
+        <div class="field"><div class="field-label">Problema técnico identificado</div><p>No hay evidencia de un conjunto mínimo aprobado de variables, una taxonomía común, unidades, fuente, obligatoriedad, reglas para faltantes, extensiones por tipología ni un SLA de actualización.</p></div>
+      </div>
+      <div>
+        <div class="field violet"><div class="field-label">Desafío adaptativo identificado</div><p>Lograr que las áreas cambien hábitos y prioridades, acepten reglas comunes y asuman calidad/fecha de sus datos. Presupuestos debe dejar de compensar silenciosamente vacíos; Nuevos Negocios debe aceptar rangos; Gerencia debe evitar pedir una certeza inexistente.</p></div>
+        <div class="field orange"><div class="field-label">Qué tensión generaría en el sistema</div><p>La información mínima exigida compite con la rapidez de evaluar oportunidades. También aparece tensión de poder: quién define el estándar, quién puede declarar una excepción y quién absorbe el trabajo adicional.</p></div>
+        <div class="field red"><div class="field-label">Qué actores podrían resistirse y por qué</div><ul><li><strong>Diseño/Planeación:</strong> varias variables aún no se conocen y temen comprometer supuestos.</li><li><strong>Ingeniería:</strong> demanda adicional y riesgo de que criterios preliminares se vuelvan promesas.</li><li><strong>Nuevos Negocios:</strong> percibe el estándar como fricción que retrasa evaluar el lote.</li><li><strong>Presupuestos:</strong> teme que simplificar ignore particularidades y deteriore el criterio.</li></ul></div>
+        <div class="field green"><div class="field-label">Capacidad actual del sistema para soportar esa tensión: Baja</div><p>El proceso depende de información entre áreas y de conocimiento concentrado. No se observan todavía acuerdos de servicio, gobierno transversal ni un mecanismo seguro para declarar “no conocido”.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 2 · El estándar debe reducir ambigüedad sin crear falsa precisión.</span><span class="page-no">11 / 18</span></footer>
+  </section>
+
+  <!-- 12 -->
+  <section class="page" data-page="12">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E2</span> EXPERIMENTO 2</div><div class="meta">Diseño de implementación<br/>Decisión y aprendizaje</div></header>
+    <div class="section-bar green"><span class="num">2</span><span class="title">Un núcleo mínimo y extensiones, no una camisa de fuerza</span><span class="sub">Evaluación · parte 2 de 2</span></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field orange"><div class="field-label">Riesgo de implementación: Medio</div><p>El estándar puede ocultar incertidumbre, excluir oportunidades con información incompleta o producir cumplimiento ritual. También puede quedar capturado por una tipología y fallar en otras.</p></div>
+        <div class="field"><div class="field-label">Condiciones mínimas para aplicarlo</div><ul><li>Mesa transversal con sponsor y autoridad para resolver diferencias.</li><li>Diccionario con propósito, dueño, fuente, unidad, fecha y regla de validación.</li><li>Clasificación requerido / opcional y conocido / supuesto / estimado.</li><li>Reglas de excepción, rango, vigencia, versión y SLA.</li><li>Definición explícita del uso permitido de un presupuesto incompleto.</li></ul></div>
+        <div class="field blue"><div class="field-label">Viabilidad práctica</div><p><strong>Media si se reduce el alcance.</strong> La plantilla de áreas de la aplicación puede ser el prototipo. Conviene empezar por vivienda en una o dos tipologías, no diseñar de inmediato el estándar universal de la compañía.</p></div>
+        <div class="field violet"><div class="field-label">Nivel de exposición y seguridad</div><p><strong>Riesgo medio · prototipo controlado.</strong> Probar con equipos voluntarios y casos reales, sin convertir faltantes iniciales en incumplimientos de desempeño.</p></div>
+      </div>
+      <div>
+        <div class="field"><div class="field-label">Ajustes recomendados</div><ol><li>Definir un núcleo mínimo común y extensiones por tipología.</li><li>Mostrar variable ausente y su efecto; no imputarla silenciosamente.</li><li>Permitir rangos y escenarios cuando el dato no esté definido.</li><li>Diseñar el estándar alrededor de decisiones, no del Excel actual.</li><li>Ensayar 4–6 casos y retirar campos que no cambien cálculo o decisión.</li></ol></div>
+        <div class="field green"><div class="field-label">Indicadores de aprendizaje</div><ul><li>% de casos completos al primer envío y tiempo de captura.</li><li>Ciclos de corrección, excepciones y solicitudes de dato adicional.</li><li>Variables que explican cambio material del costo o del rango.</li><li>Acuerdo interáreas sobre definición y fuente.</li><li>% de usuarios que completa sin apoyo y número de supuestos ocultos detectados.</li></ul></div>
+        <div class="field green"><div class="field-label">Decisión recomendada: Pilotear</div><p>Pilotear un <strong>producto mínimo de información</strong> en 1–2 tipologías. Escalar por evidencia de utilidad y comprensión, no por exhaustividad documental.</p></div>
+        <div class="field red"><div class="field-label">Argumento final como abogado del diablo</div><p>Estandarizar puede ser una forma elegante de negar la naturaleza de Fase 1. Si todas las casillas deben estar cerradas, el sistema llegará tarde; si las llena por defecto, mentirá con precisión. <strong>El mejor estándar no elimina el desconocimiento: lo hace visible, comparable y gobernable.</strong></p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 2 · Decisión: PILOTEAR en 1–2 tipologías.</span><span class="page-no">12 / 18</span></footer>
+  </section>
+
+  <!-- 13 -->
+  <section class="page" data-page="13">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E3</span> EXPERIMENTO 3</div><div class="meta">Integración con IA<br/>Diagnóstico crítico</div></header>
+    <div class="section-bar violet"><span class="num">3</span><span class="title">Integrar la base de indicadores con una herramienta de IA</span><span class="sub">Evaluación · parte 1 de 2</span></div>
+    <div class="risk-strip"><span class="tag high">CAPACIDAD: BAJA</span><span class="tag high">RIESGO: ALTO</span><span class="tag pilot">EXPOSICIÓN: MODO SOMBRA</span><h3>Pertinencia: condicional; integrar antes de gobernar solo acelera el error.</h3></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field"><div class="field-label">Experimento evaluado</div><p>Integrar la base de indicadores con una herramienta de IA para sugerir comparables, analizar resultados y apoyar la generación rápida del presupuesto preliminar.</p></div>
+        <div class="field blue"><div class="field-label">Reto estratégico asociado</div><p>Transformar áreas y características tempranas en un escenario trazable en pocos minutos, manteniendo explicación, capacidad de edición y control profesional.</p></div>
+        <div class="field"><div class="field-label">Pertinencia frente al reto estratégico</div><p>Puede reducir tiempo y ampliar la exploración de comparables, pero no resuelve por sí sola calidad, estándares ni responsabilidad. Es pertinente <strong>después</strong> de E1/E2 y solo para tareas definidas; como punto de partida responde al símbolo visible —“necesitamos IA”—, no a la causa.</p></div>
+        <div class="field"><div class="field-label">Problema técnico identificado</div><p>Faltan arquitectura segura, versionado de datos/modelo, reproducibilidad, control de alucinaciones, criterio de selección de comparables, separación cálculo–narrativa, registros, evaluación, privacidad y fallback manual.</p></div>
+      </div>
+      <div>
+        <div class="field violet"><div class="field-label">Desafío adaptativo identificado</div><p>Redefinir la relación entre pericia y automatización. El experto pasa de construir todo a revisar, explicar y corregir; Gerencia debe renunciar a delegar la responsabilidad; el usuario debe aprender a cuestionar una salida fluida.</p></div>
+        <div class="field orange"><div class="field-label">Qué tensión generaría en el sistema</div><p>Temor a reemplazo o pérdida de autonomía versus sobreconfianza tecnológica. Puede polarizar entre “la IA no sirve” y “la IA ya decidió”, desplazando la conversación sobre supuestos y evidencia.</p></div>
+        <div class="field red"><div class="field-label">Qué actores podrían resistirse y por qué</div><ul><li><strong>Presupuestadores:</strong> amenaza a identidad, oficio y control sobre criterios.</li><li><strong>Tecnología/Seguridad:</strong> exposición de datos y falta de arquitectura empresarial.</li><li><strong>Gerencia/Nuevos Negocios:</strong> frustración ante rangos, advertencias o revisión humana.</li><li><strong>Usuarios finales:</strong> dificultad para evaluar comparables y respuestas persuasivas.</li></ul></div>
+        <div class="field green"><div class="field-label">Capacidad actual del sistema para soportar esa tensión: Baja</div><p>Existe un motor explicable y una interfaz madura, pero no aún una base gobernada, protocolo de IA, seguridad multiusuario, entrenamiento crítico ni límites institucionales de decisión.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 3 · La IA debe añadir aprendizaje, no una capa de autoridad estética.</span><span class="page-no">13 / 18</span></footer>
+  </section>
+
+  <!-- 14 -->
+  <section class="page" data-page="14">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E3</span> EXPERIMENTO 3</div><div class="meta">Diseño de implementación<br/>Decisión y aprendizaje</div></header>
+    <div class="section-bar violet"><span class="num">3</span><span class="title">Cálculo determinístico; IA acotada, explicable y refutable</span><span class="sub">Evaluación · parte 2 de 2</span></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field orange"><div class="field-label">Riesgo de implementación: Alto</div><p>Puede inventar referencias, filtrar información sensible, reforzar sesgos históricos o crear falsa seguridad por la calidad de la explicación. El impacto aumenta si alimenta una decisión de compra sin revisión.</p></div>
+        <div class="field"><div class="field-label">Condiciones mínimas para aplicarlo</div><ul><li>E1/E2 con puerta de calidad aprobada.</li><li>Caso de uso y tareas autorizadas; revisión humana obligatoria.</li><li>Ambiente seguro, acceso, confidencialidad, log y versiones.</li><li>Fuente visible por afirmación y prohibición de inventar tarifas.</li><li>Rangos, supuestos, umbrales, fallback manual y regla de parada.</li><li>Ninguna aprobación automática de compra.</li></ul></div>
+        <div class="field blue"><div class="field-label">Viabilidad práctica</div><p><strong>Media como experimento acotado; baja como sistema productivo.</strong> Mantener el cálculo actual y probar IA solo en sugerencia de comparables, detección de anomalías y explicación, con un grupo pequeño de revisores.</p></div>
+        <div class="field violet"><div class="field-label">Nivel de exposición y seguridad</div><p><strong>Riesgo alto · piloto en modo sombra.</strong> La salida no llega al decisor como cifra oficial; se compara con el trabajo humano, en entorno controlado y con datos minimizados.</p></div>
+      </div>
+      <div>
+        <div class="field"><div class="field-label">Ajustes recomendados</div><ol><li>Conservar aritmética y reglas críticas en motor determinístico auditable.</li><li>Usar IA para proponer, explicar, detectar anomalías y formular preguntas.</li><li>Exigir cita de fuente, fecha y motivo de cada comparable.</li><li>Mostrar rango, confianza y condiciones que invalidan la recomendación.</li><li>Separar claramente análisis local, IA generativa, modelo predictivo y dato de mercado.</li></ol></div>
+        <div class="field green"><div class="field-label">Indicadores de aprendizaje</div><ul><li>Reproducibilidad; % de sugerencias con fuente válida.</li><li>% aceptado, modificado o rechazado y motivo del experto.</li><li>Afirmaciones no soportadas, incidentes y violaciones de regla.</li><li>Tiempo ahorrado neto, incluido revisar/corregir.</li><li>Comprensión del usuario, confianza calibrada y calidad del desacuerdo.</li></ul></div>
+        <div class="field green"><div class="field-label">Decisión recomendada: Pilotear</div><p>Pilotear solo después de G1 y G2, en modo sombra, con tareas acotadas. No institucionalizar hasta superar desempeño, seguridad y comprensión.</p></div>
+        <div class="field red"><div class="field-label">Argumento final como abogado del diablo</div><p>Una interfaz que responde rápido y escribe recomendaciones plausibles puede esconder que el “modelo” solo automatiza reglas deficientes o recicla promedios. <strong>Si el equipo no puede señalar qué añadió la IA, cómo se refuta y qué dato sustentó cada salida, la integración aumenta persuasión, no inteligencia.</strong></p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 3 · Decisión: PILOTEAR en modo sombra y con tareas acotadas.</span><span class="page-no">14 / 18</span></footer>
+  </section>
+
+  <!-- 15 -->
+  <section class="page" data-page="15">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E4</span> EXPERIMENTO 4</div><div class="meta">Validación<br/>Diagnóstico crítico</div></header>
+    <div class="section-bar orange"><span class="num">4</span><span class="title">Validar trazabilidad, desviación y precisión</span><span class="sub">Evaluación · parte 1 de 2</span></div>
+    <div class="risk-strip"><span class="tag med">CAPACIDAD: MEDIA</span><span class="tag med">RIESGO: MEDIO</span><span class="tag blue">EXPOSICIÓN: CASOS CIEGOS + SOMBRA</span><h3>Pertinencia: indispensable; debe intentar refutar el modelo, no justificarlo.</h3></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field"><div class="field-label">Experimento evaluado</div><p>Validar trazabilidad, desviación y precisión frente a presupuestos realizados, método tradicional y, cuando exista, costo ejecutado.</p></div>
+        <div class="field blue"><div class="field-label">Reto estratégico asociado</div><p>Demostrar que la rapidez conserva utilidad decisional y que el presupuesto puede explicarse, reproducirse y corregirse antes de afectar una decisión de inversión.</p></div>
+        <div class="field"><div class="field-label">Pertinencia frente al reto estratégico</div><p>Ataca directamente la promesa de confiabilidad y convierte confianza abstracta en evidencia. Es el experimento de control del sistema. Sin embargo, validar con datos usados para construir reglas o solo con el total produce una confirmación circular.</p></div>
+        <div class="field"><div class="field-label">Problema técnico identificado</div><p>Definir casos no contaminados, baseline, comparabilidad, normalización por fecha/ciudad/alcance, métricas por capítulo, umbrales, cobertura de rango y segmentación. Distinguir presupuesto inicial, aprobado, contratado y ejecutado.</p></div>
+      </div>
+      <div>
+        <div class="field violet"><div class="field-label">Desafío adaptativo identificado</div><p>Aceptar resultados desfavorables y exponer tanto errores del modelo como del proceso manual. Acordar cuándo detener, quién autoriza el avance y qué significa “suficientemente bueno” para una cifra preliminar.</p></div>
+        <div class="field orange"><div class="field-label">Qué tensión generaría en el sistema</div><p>Hace visibles brechas profesionales, sesgos y compensaciones entre capítulos. Obliga a negociar tolerancias y puede retrasar el relato de éxito. Es tensión productiva si los umbrales se pactan antes.</p></div>
+        <div class="field red"><div class="field-label">Qué actores podrían resistirse y por qué</div><ul><li><strong>Equipo promotor/desarrollo:</strong> costo hundido y temor a que el piloto falle.</li><li><strong>Presupuestos:</strong> exposición de variabilidad del método histórico.</li><li><strong>Dueños de proyectos:</strong> desacuerdo sobre alcance y “verdad” del ejecutado.</li><li><strong>Nuevos Negocios/Gerencia:</strong> presión por usar el resultado antes de validar.</li></ul></div>
+        <div class="field green"><div class="field-label">Capacidad actual del sistema para soportar esa tensión: Media</div><p>Existen oráculos de Excel, pruebas automatizadas y experiencia de revisión. Falta evaluador independiente, holdout, umbrales de negocio y una regla explícita de avanzar, ajustar o detener.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 4 · La validación es una prueba de falsación, no una ceremonia de aprobación.</span><span class="page-no">15 / 18</span></footer>
+  </section>
+
+  <!-- 16 -->
+  <section class="page" data-page="16">
+    <header class="page-head"><div class="brand"><span class="brand-mark">E4</span> EXPERIMENTO 4</div><div class="meta">Diseño de implementación<br/>Decisión y aprendizaje</div></header>
+    <div class="section-bar orange"><span class="num">4</span><span class="title">Medir utilidad decisional, no solo cercanía del total</span><span class="sub">Evaluación · parte 2 de 2</span></div>
+    <div class="grid-2" style="gap:3.5mm;">
+      <div>
+        <div class="field orange"><div class="field-label">Riesgo de implementación: Medio</div><p>Puede declarar éxito por error agregado bajo, aunque existan errores grandes que se compensan. También puede usar casos “vistos”, cambiar métricas después o comparar alcances diferentes.</p></div>
+        <div class="field"><div class="field-label">Condiciones mínimas para aplicarlo</div><ul><li>Casos holdout y evaluación independiente.</li><li>Métricas/umbrales definidos antes de calcular resultados.</li><li>Normalización documentada y versiones congeladas.</li><li>Comparar método tradicional, presupuesto aprobado y ejecutado sin mezclarlos.</li><li>Segmentación por tipología/capítulo y regla avanzar–ajustar–detener.</li></ul></div>
+        <div class="field blue"><div class="field-label">Viabilidad práctica</div><p><strong>Alta en retrospectiva y media en prospectiva.</strong> Puede empezar ya con casos históricos no usados; requiere luego varios lotes reales en modo sombra y seguimiento hasta mayor madurez o ejecución.</p></div>
+        <div class="field violet"><div class="field-label">Nivel de exposición y seguridad</div><p><strong>Riesgo medio · validación ciega y piloto prospectivo.</strong> Reportar resultados por segmento y proteger la revisión de usos punitivos. Los errores deben activar corrección del sistema.</p></div>
+      </div>
+      <div>
+        <div class="field"><div class="field-label">Ajustes recomendados</div><ol><li>Fase A: retrospectiva ciega con casos no vistos.</li><li>Fase B: prospectiva en sombra contra método tradicional.</li><li>Fase C: revisión al aprobar/contratar/ejecutar.</li><li>Medir por capítulo, tipología, rango y decisión; no solo total.</li><li>Analizar falsos positivos/negativos de compra y razones de override.</li></ol></div>
+        <div class="field green"><div class="field-label">Indicadores de aprendizaje</div><ul><li>Error absoluto y porcentual; sesgo; cobertura del rango.</li><li>Desviación por capítulo, tipología, ciudad y madurez.</li><li>Trazabilidad completa y reproducibilidad entre versiones.</li><li>Tiempo total, overrides y diferencia contra baseline manual.</li><li>Decisiones que cambiaron, umbrales incumplidos y errores compensados.</li></ul></div>
+        <div class="field green"><div class="field-label">Decisión recomendada: Implementar</div><p>Implementar como control obligatorio desde la primera salida. Su resultado puede llevar a <strong>ajustar o detener</strong> los demás experimentos; no es una actividad final de confirmación.</p></div>
+        <div class="field red"><div class="field-label">Argumento final como abogado del diablo</div><p>La precisión histórica puede ser una ilusión si el modelo vio los casos, si se comparan alcances distintos o si los errores se compensan. <strong>Un total correcto por razones equivocadas es más peligroso que un error visible.</strong> La validación debe diseñarse para hacer fracasar la hipótesis, no para protegerla.</p></div>
+      </div>
+    </div>
+    <footer class="page-foot"><span>Experimento 4 · Decisión: IMPLEMENTAR como control obligatorio.</span><span class="page-no">16 / 18</span></footer>
+  </section>
+
+  <!-- 17 -->
+  <section class="page" data-page="17">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Hoja de ruta<br/>13 semanas con puertas de salida</div></header>
+    <div class="section-bar green"><span class="num">7</span><span class="title">Roadmap de aprendizaje y escalamiento condicionado</span><span class="sub">La evidencia desbloquea la siguiente fase</span></div>
+    <div class="timeline">
+      <div class="phase"><div class="card blue"><span class="tag blue">SEM. 1–2</span><h3 style="margin-top:2mm;">Alinear decisión y gobierno</h3><ul class="small"><li>Uso permitido y exclusiones.</li><li>Sponsor, dueños y RACI.</li><li>Tolerancias y baseline.</li><li>Casos prioritarios.</li></ul><div class="callout blue" style="padding:2mm;margin-top:2mm;"><strong>G0</strong><p class="tiny">Mandato firmado y regla de parada.</p></div></div></div>
+      <div class="phase"><div class="card blue"><span class="tag blue">SEM. 3–5</span><h3 style="margin-top:2mm;">Calidad y estándar mínimo</h3><ul class="small"><li>Conjunto dorado.</li><li>Diccionario y metadatos.</li><li>Núcleo + extensiones.</li><li>Calidad y comparabilidad.</li></ul><div class="callout blue" style="padding:2mm;margin-top:2mm;"><strong>G1</strong><p class="tiny">Casos comparables y datos aprobados.</p></div></div></div>
+      <div class="phase violet-phase"><div class="card violet"><span class="tag pilot">SEM. 6–9</span><h3 style="margin-top:2mm;">Piloto en modo sombra</h3><ul class="small"><li>MVP + motor determinístico.</li><li>IA en tarea acotada.</li><li>Seguridad y bitácora.</li><li>Casos reales sin decisión automática.</li></ul><div class="callout violet" style="padding:2mm;margin-top:2mm;"><strong>G2</strong><p class="tiny">Seguridad, fuente y explicación.</p></div></div></div>
+      <div class="phase violet-phase"><div class="card orange"><span class="tag med">SEM. 10–13</span><h3 style="margin-top:2mm;">Validar y confrontar</h3><ul class="small"><li>Holdout retrospectivo.</li><li>Comparación prospectiva.</li><li>Error por capítulo.</li><li>Overrides y entrevistas.</li></ul><div class="callout" style="padding:2mm;margin-top:2mm;"><strong>G3</strong><p class="tiny">Umbrales de error, tiempo y trazabilidad.</p></div></div></div>
+      <div class="phase green-phase"><div class="card green"><span class="tag low">DESPUÉS</span><h3 style="margin-top:2mm;">Escalar por evidencia</h3><ul class="small"><li>Backend institucional.</li><li>Más tipologías/regiones.</li><li>Formación y soporte.</li><li>Monitoreo continuo.</li></ul><div class="callout green" style="padding:2mm;margin-top:2mm;"><strong>G4</strong><p class="tiny">Uso seguro, sostenido y comprendido.</p></div></div></div>
+    </div>
+    <div class="grid-3" style="margin-top:4mm;">
+      <div class="callout green"><strong>Continuar</strong><p>Si mejora el tiempo sin exceder error/sesgo, conserva trazabilidad y los usuarios entienden límites.</p></div>
+      <div class="callout violet"><strong>Ajustar</strong><p>Si hay valor parcial, pero fallan segmentos, datos, comprensión o seguridad corregibles.</p></div>
+      <div class="callout"><strong>Detener</strong><p>Si la salida no es reproducible, inventa fuentes, genera sobreconfianza o no supera el baseline.</p></div>
+    </div>
+    <div class="card" style="margin-top:4mm;display:flex;align-items:center;gap:5mm;padding:3mm 5mm;"><span class="icon orange">!</span><div><h3>No poner el piloto a “probar que funciona”</h3><p>La pregunta de cada fase es qué se aprendió y qué hipótesis perdió soporte. Un experimento que revela a tiempo que un enfoque no sirve puede ahorrar más valor que un despliegue rápido.</p></div></div>
+    <footer class="page-foot"><span>Roadmap propuesto · Los plazos son hipótesis; las puertas son compromisos.</span><span class="page-no">17 / 18</span></footer>
+  </section>
+
+  <!-- 18 -->
+  <section class="page" data-page="18">
+    <header class="page-head"><div class="brand"><span class="brand-mark">C</span> CABIDA · EVALUACIÓN ADAPTATIVA</div><div class="meta">Gobernanza y cierre<br/>Responsabilidad humana explícita</div></header>
+    <div class="section-bar"><span class="num">8</span><span class="title">Gobernanza, tablero de aprendizaje y decisión final</span><span class="sub">Quién estima, quién valida, quién decide</span></div>
+    <div class="grid-2" style="grid-template-columns:1.05fr .95fr;gap:4mm;margin-bottom:3mm;">
+      <div class="card">
+        <h3>Gobernanza mínima</h3>
+        <table style="margin-top:2mm;"><thead><tr><th>Actor</th><th>Responsabilidad indelegable</th><th>Evidencia</th></tr></thead><tbody>
+          <tr><td><strong>Presupuestos</strong></td><td>Dueño del catálogo, reglas, validación técnica y versión del resultado.</td><td>Fuentes, ajustes, firma y bitácora.</td></tr>
+          <tr><td><strong>Diseño / Planeación</strong></td><td>Calidad, vigencia y supuestos de áreas, unidades y tipología.</td><td>Entrada fechada y estado de madurez.</td></tr>
+          <tr><td><strong>Ingeniería</strong></td><td>Criterios de suelo, estructura, redes y excepciones técnicas.</td><td>Condiciones y riesgos documentados.</td></tr>
+          <tr><td><strong>Nuevos Negocios</strong></td><td>Uso dentro del protocolo y retroalimentación sobre utilidad decisional.</td><td>Decisión, motivo y resultado posterior.</td></tr>
+          <tr><td><strong>Tecnología / Datos</strong></td><td>Seguridad, plataforma, acceso, auditoría, versiones y continuidad.</td><td>Logs, controles, respaldo e incidentes.</td></tr>
+          <tr><td><strong>Gerencia</strong></td><td>Aprobar tolerancia y uso; conservar la responsabilidad de inversión.</td><td>Puerta de decisión y excepciones.</td></tr>
+        </tbody></table>
+      </div>
+      <div class="card blue">
+        <h3>Tablero de aprendizaje</h3>
+        <div class="grid-2" style="gap:2mm;margin-top:2mm;">
+          <div class="field"><div class="field-label">Velocidad</div><p class="small">Tiempo neto por escenario y ciclos de corrección.</p></div>
+          <div class="field"><div class="field-label">Calidad</div><p class="small">Completitud, comparabilidad y controversias.</p></div>
+          <div class="field"><div class="field-label">Desempeño</div><p class="small">Error, sesgo y cobertura del rango por capítulo.</p></div>
+          <div class="field"><div class="field-label">Trazabilidad</div><p class="small">% de cifras reproducibles hasta fuente/versión.</p></div>
+          <div class="field"><div class="field-label">Adopción</div><p class="small">Uso real, comprensión y overrides explicados.</p></div>
+          <div class="field"><div class="field-label">Tensión</div><p class="small">Resistencias, conflictos y temas evitados/resueltos.</p></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid-4" style="margin-bottom:3mm;">
+      <div class="card blue"><span class="tag blue">E1</span><h3 style="margin-top:2mm;">Ajustar</h3><p class="small">Conjunto dorado limitado, comparable y versionado.</p></div>
+      <div class="card green"><span class="tag pilot">E2</span><h3 style="margin-top:2mm;">Pilotear</h3><p class="small">Núcleo mínimo en 1–2 tipologías con incertidumbre visible.</p></div>
+      <div class="card violet"><span class="tag high">E3</span><h3 style="margin-top:2mm;">Pilotear</h3><p class="small">Modo sombra, IA acotada, cálculo determinístico.</p></div>
+      <div class="card orange"><span class="tag low">E4</span><h3 style="margin-top:2mm;">Implementar</h3><p class="small">Control obligatorio, ciego y por capítulos.</p></div>
+    </div>
+    <div class="callout green" style="padding:3.5mm 5mm;">
+      <strong>Juicio final</strong>
+      <p style="font-size:11pt;line-height:1.25;"><strong>La aplicación coincide con la intención de la matriz y está lista para un piloto controlado, no para convertirse todavía en autoridad institucional.</strong> El siguiente paso no es añadir más funciones: es probar casos reales con datos gobernados, tensión contenida, criterios de salida y responsabilidad explícita.</p>
+    </div>
+    <div style="margin-top:3mm;text-align:center;font-size:14pt;font-weight:900;color:var(--navy);">La herramienta estima · Presupuestos valida · Gerencia decide</div>
+    <footer class="page-foot"><span>Cierre · Propuesta sujeta a validación conjunta de Presupuestos, áreas habilitadoras y Gerencia.</span><span class="page-no">18 / 18</span></footer>
+  </section>
+
+</body>
+</html>
