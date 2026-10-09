@@ -23,21 +23,26 @@ export interface XlsxCell {
   dataType?: string;
 }
 
-export interface XlsxWorksheet {
-  name: AllowedWorksheetName;
+export interface XlsxWorksheet<Name extends string = AllowedWorksheetName> {
+  name: Name;
   /** Normalized path inside the XLSX archive. */
   path: string;
   cells: ReadonlyMap<string, XlsxCell>;
 }
 
-export interface ParsedXlsxWorkbook {
-  sheets: ReadonlyMap<AllowedWorksheetName, XlsxWorksheet>;
+export interface ParsedXlsxWorkbook<Name extends string = AllowedWorksheetName> {
+  sheets: ReadonlyMap<Name, XlsxWorksheet<Name>>;
 }
 
 const OFFICE_REL_NS =
   "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 const WORKBOOK_PATH = "xl/workbook.xml";
 const WORKBOOK_RELS_PATH = "xl/_rels/workbook.xml.rels";
+const MAX_COMPRESSED_WORKBOOK_BYTES = 20 * 1024 * 1024;
+const MAX_XML_ENTRY_BYTES = 8 * 1024 * 1024;
+const MAX_SELECTED_XML_BYTES = 32 * 1024 * 1024;
+const MAX_CELLS_PER_WORKSHEET = 100_000;
+const MAX_SHARED_STRINGS = 100_000;
 
 const decoder = (bytes: Uint8Array): string => strFromU8(bytes);
 
@@ -130,7 +135,13 @@ function parseSharedStrings(
 
   const document = parseXml(decoder(entry), "xl/sharedStrings.xml");
 
-  return elements(document, "si").map(spreadsheetStringText);
+  const items = elements(document, "si");
+  if (items.length > MAX_SHARED_STRINGS) {
+    throw new XlsxParseError(
+      `El archivo supera el limite de ${MAX_SHARED_STRINGS} textos compartidos.`,
+    );
+  }
+  return items.map(spreadsheetStringText);
 }
 
 function parseNumber(value: string, reference: string): number {
@@ -184,16 +195,22 @@ function decodeCellValue(
   }
 }
 
-function parseWorksheet(
-  name: AllowedWorksheetName,
+function parseWorksheet<Name extends string>(
+  name: Name,
   path: string,
   xml: string,
   sharedStrings: readonly string[],
-): XlsxWorksheet {
+): XlsxWorksheet<Name> {
   const document = parseXml(xml, path);
   const cells = new Map<string, XlsxCell>();
+  const cellElements = elements(document, "c");
+  if (cellElements.length > MAX_CELLS_PER_WORKSHEET) {
+    throw new XlsxParseError(
+      `La hoja ${name} supera el limite de ${MAX_CELLS_PER_WORKSHEET} celdas.`,
+    );
+  }
 
-  for (const cell of elements(document, "c")) {
+  for (const cell of cellElements) {
     const reference = cell.getAttribute("r")?.toUpperCase();
     if (!reference || !/^[A-Z]+[1-9]\d*$/.test(reference)) {
       throw new XlsxParseError(`Referencia de celda invalida en ${name}.`);
@@ -246,19 +263,50 @@ function relationshipId(sheet: Element): string | null {
   );
 }
 
+function isSelectedXmlEntry(name: string): boolean {
+  return (
+    name === WORKBOOK_PATH ||
+    name === WORKBOOK_RELS_PATH ||
+    name === "xl/sharedStrings.xml" ||
+    /^xl\/worksheets\/(?:[^/]+\/)*[^/]+\.xml$/.test(name)
+  );
+}
+
 /**
- * Read only the three workbook sheets supported by the MVP.
- *
- * Defined names, external links, macros, drawings and any non-allowlisted sheets
- * are deliberately ignored. Formulas are not executed: their OOXML formula and
- * cached result are both exposed so callers can reconcile instead of trusting a
- * spreadsheet engine implicitly.
+ * Read only an explicit worksheet allowlist. Media, macros, external links,
+ * drawings and other archive entries are never decompressed. Formulas are not
+ * executed: their OOXML text and cached result are exposed to the caller.
  */
-export function parseXlsxWorkbook(buffer: ArrayBuffer): ParsedXlsxWorkbook {
+export function parseXlsxSheets<const Name extends string>(
+  buffer: ArrayBuffer,
+  requiredSheetNames: readonly Name[],
+): ParsedXlsxWorkbook<Name> {
+  if (buffer.byteLength > MAX_COMPRESSED_WORKBOOK_BYTES) {
+    throw new XlsxParseError("El archivo XLSX supera el limite de 20 MB.");
+  }
+
   let archive: Record<string, Uint8Array>;
+  let selectedXmlBytes = 0;
   try {
-    archive = unzipSync(new Uint8Array(buffer));
-  } catch {
+    archive = unzipSync(new Uint8Array(buffer), {
+      filter: (entry) => {
+        if (!isSelectedXmlEntry(entry.name)) return false;
+        if (entry.originalSize > MAX_XML_ENTRY_BYTES) {
+          throw new XlsxParseError(
+            `La entrada ${entry.name} supera el limite permitido.`,
+          );
+        }
+        selectedXmlBytes += entry.originalSize;
+        if (selectedXmlBytes > MAX_SELECTED_XML_BYTES) {
+          throw new XlsxParseError(
+            "El contenido XML descomprimido del XLSX supera el limite permitido.",
+          );
+        }
+        return true;
+      },
+    });
+  } catch (error) {
+    if (error instanceof XlsxParseError) throw error;
     throw new XlsxParseError("El archivo no es un XLSX/ZIP valido.");
   }
 
@@ -268,8 +316,8 @@ export function parseXlsxWorkbook(buffer: ArrayBuffer): ParsedXlsxWorkbook {
   );
   const relationships = worksheetRelationships(archive);
   const sharedStrings = parseSharedStrings(archive);
-  const sheets = new Map<AllowedWorksheetName, XlsxWorksheet>();
-  const allowed = new Set<string>(ALLOWED_WORKSHEET_NAMES);
+  const sheets = new Map<Name, XlsxWorksheet<Name>>();
+  const allowed = new Set<string>(requiredSheetNames);
 
   for (const sheet of elements(workbook, "sheet")) {
     const name = sheet.getAttribute("name");
@@ -282,9 +330,9 @@ export function parseXlsxWorkbook(buffer: ArrayBuffer): ParsedXlsxWorkbook {
     }
 
     sheets.set(
-      name as AllowedWorksheetName,
+      name as Name,
       parseWorksheet(
-        name as AllowedWorksheetName,
+        name as Name,
         path,
         requiredArchiveText(archive, path),
         sharedStrings,
@@ -292,7 +340,7 @@ export function parseXlsxWorkbook(buffer: ArrayBuffer): ParsedXlsxWorkbook {
     );
   }
 
-  const missing = ALLOWED_WORKSHEET_NAMES.filter((name) => !sheets.has(name));
+  const missing = requiredSheetNames.filter((name) => !sheets.has(name));
   if (missing.length > 0) {
     throw new XlsxParseError(
       `Faltan hojas requeridas: ${missing.map((name) => JSON.stringify(name)).join(", ")}.`,
@@ -302,17 +350,24 @@ export function parseXlsxWorkbook(buffer: ArrayBuffer): ParsedXlsxWorkbook {
   return { sheets };
 }
 
-export function getXlsxCell(
-  workbook: ParsedXlsxWorkbook,
-  sheet: AllowedWorksheetName,
+/** Read an explicit worksheet allowlist from an XLSX archive. */
+export function parseXlsxWorkbook(
+  buffer: ArrayBuffer,
+): ParsedXlsxWorkbook<AllowedWorksheetName> {
+  return parseXlsxSheets(buffer, ALLOWED_WORKSHEET_NAMES);
+}
+
+export function getXlsxCell<Name extends string>(
+  workbook: ParsedXlsxWorkbook<Name>,
+  sheet: Name,
   reference: string,
 ): XlsxCell | undefined {
   return workbook.sheets.get(sheet)?.cells.get(reference.toUpperCase());
 }
 
-export function getXlsxValue(
-  workbook: ParsedXlsxWorkbook,
-  sheet: AllowedWorksheetName,
+export function getXlsxValue<Name extends string>(
+  workbook: ParsedXlsxWorkbook<Name>,
+  sheet: Name,
   reference: string,
 ): XlsxCellValue {
   return getXlsxCell(workbook, sheet, reference)?.value ?? null;

@@ -22,6 +22,7 @@ import {
   LayoutDashboard,
   Menu,
   PanelLeftClose,
+  Plus,
   RefreshCcw,
   Search,
   ShieldCheck,
@@ -31,8 +32,19 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { Fragment, type ChangeEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import { BudgetWorkspace, type BudgetLineUpdate } from "./components/BudgetWorkspace";
 import { DEFAULT_WORKBOOK } from "./data/defaultWorkbook";
+import {
+  createBudgetDraftFromProject,
+  type BudgetDraft,
+} from "./domain/budget";
+import {
+  buildCostProjectCatalog,
+  COST_PROJECTS,
+  filterCostIndicatorsByProject,
+  type CostProjectId,
+} from "./domain/catalogProjects";
 import { estimateScenario } from "./domain/estimate";
 import { suggestReferenceIds } from "./domain/referenceCandidates";
 import type {
@@ -45,7 +57,6 @@ import type {
   EstimateWarning,
   ScenarioAreas,
   ScenarioInput,
-  ProjectType,
   WorkbookModel,
 } from "./domain/types";
 import { downloadCsv } from "./utils/csv";
@@ -59,7 +70,7 @@ import {
 } from "./utils/format";
 
 type View = "overview" | "scenarios" | "references" | "import";
-type ProjectTypeFilter = "all" | ProjectType;
+type ActiveCostProject = "all" | CostProjectId;
 type UploadState =
   | { status: "idle" }
   | { status: "loading"; fileName: string }
@@ -84,12 +95,6 @@ const AREA_FIELD_BY_CHAPTER: Record<ChapterKey, keyof ScenarioAreas> = {
   preliminaries: "constructedTotal",
 };
 
-const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
-  "residential-tower": "Vivienda en torre",
-  office: "Oficinas",
-  houses: "Casas",
-};
-
 const ASSET_CLASS_LABELS: Record<CostReference["context"]["assetClass"], string> = {
   residential: "vivienda",
   office: "oficinas",
@@ -111,7 +116,7 @@ const NAV_ITEMS: Array<{
   icon: typeof Home;
 }> = [
   { id: "overview", label: "Resumen ejecutivo", caption: "Decisión y comparación", icon: LayoutDashboard },
-  { id: "scenarios", label: "Escenarios", caption: "Cantidades y supuestos", icon: SlidersHorizontal },
+  { id: "scenarios", label: "Presupuestos", caption: "Áreas, referentes y cálculo", icon: SlidersHorizontal },
   { id: "references", label: "Indicadores", caption: "Biblioteca trazable", icon: Database },
   { id: "import", label: "Importar Excel", caption: "Conciliación de fuente", icon: FileSpreadsheet },
 ];
@@ -123,6 +128,10 @@ function cloneScenario(scenario: ScenarioInput): ScenarioInput {
 function safeNumber(rawValue: string): number {
   const value = Number(rawValue);
   return Number.isFinite(value) ? value : 0;
+}
+
+function createClientId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function chapterAdjustmentPerUnit(line: EstimateLineItem): number {
@@ -192,14 +201,19 @@ function App() {
     ),
   );
   const [referenceSearch, setReferenceSearch] = useState("");
-  const [projectTypeFilter, setProjectTypeFilter] = useState<ProjectTypeFilter>("all");
+  const [activeCostProjectId, setActiveCostProjectId] = useState<ActiveCostProject>("all");
   const [selectedChapter, setSelectedChapter] = useState<ChapterKey>("vis-towers");
   const [manualReferenceSelections, setManualReferenceSelections] = useState<Set<string>>(
     () => new Set(),
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
+  const [budgetDrafts, setBudgetDrafts] = useState<BudgetDraft[]>([]);
+  const [activeBudgetId, setActiveBudgetId] = useState<string | null>(null);
+  const [budgetUploadState, setBudgetUploadState] = useState<UploadState>({ status: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const budgetFileInputRef = useRef<HTMLInputElement>(null);
+  const pendingBudgetImportIdRef = useRef<string | null>(null);
 
   const configFor = (scenarioId: string): EstimateConfig =>
     scenarioConfigs[scenarioId] ?? workbook.config;
@@ -213,6 +227,11 @@ function App() {
         ]),
       ),
     [scenarios, scenarioConfigs, workbook],
+  );
+
+  const costProjectCatalog = useMemo(
+    () => buildCostProjectCatalog(workbook.costIndicators),
+    [workbook.costIndicators],
   );
 
   const selectedScenario =
@@ -275,6 +294,181 @@ function App() {
       ...current,
       [scenarioId]: { ...configFor(scenarioId), ...patch },
     }));
+  };
+
+  const createBudget = () => {
+    const projectId: CostProjectId = activeCostProjectId === "all"
+      ? "serraclara"
+      : activeCostProjectId;
+    const id = createClientId("presupuesto");
+    const draft = createBudgetDraftFromProject(
+      {
+        id,
+        name: `Presupuesto ${budgetDrafts.length + 1}`,
+        baseProjectId: projectId,
+      },
+      workbook.costIndicators,
+    );
+    setBudgetDrafts((current) => [...current, draft]);
+    setActiveBudgetId(id);
+    setBudgetUploadState({ status: "idle" });
+    setActiveView("scenarios");
+    setSidebarOpen(false);
+  };
+
+  const updateBudget = (
+    budgetId: string,
+    updater: (draft: BudgetDraft) => BudgetDraft,
+  ) => {
+    setBudgetDrafts((current) =>
+      current.map((draft) => (draft.id === budgetId ? updater(draft) : draft)),
+    );
+  };
+
+  const renameBudget = (budgetId: string, name: string) => {
+    updateBudget(budgetId, (draft) => ({ ...draft, name }));
+  };
+
+  const duplicateBudget = (budgetId: string) => {
+    const source = budgetDrafts.find((draft) => draft.id === budgetId);
+    if (!source) return;
+    const id = createClientId("presupuesto");
+    const copy: BudgetDraft = {
+      ...structuredClone(source),
+      id,
+      name: `${source.name || "Presupuesto"} · copia`,
+      lines: source.lines.map((line) => ({ ...line, id: createClientId("linea") })),
+    };
+    setBudgetDrafts((current) => [...current, copy]);
+    setActiveBudgetId(id);
+  };
+
+  const addBudgetLine = (budgetId: string) => {
+    updateBudget(budgetId, (draft) => {
+      const projectIndicators = filterCostIndicatorsByProject(
+        workbook.costIndicators,
+        draft.baseProjectId,
+      );
+      const indicator = projectIndicators.find((item) => item.usage === "selectable")
+        ?? projectIndicators[0]
+        ?? workbook.costIndicators.find((item) => item.usage === "selectable")
+        ?? workbook.costIndicators[0];
+      if (!indicator) return draft;
+      return {
+        ...draft,
+        lines: [
+          ...draft.lines,
+          {
+            id: createClientId("linea"),
+            indicatorId: indicator.id,
+            quantity: 0,
+            adjustmentPerUnit: 0,
+          },
+        ],
+      };
+    });
+  };
+
+  const updateBudgetLine = (
+    budgetId: string,
+    lineId: string,
+    changes: BudgetLineUpdate,
+  ) => {
+    updateBudget(budgetId, (draft) => ({
+      ...draft,
+      lines: draft.lines.map((line) =>
+        line.id === lineId ? { ...line, ...changes } : line,
+      ),
+    }));
+  };
+
+  const removeBudgetLine = (budgetId: string, lineId: string) => {
+    updateBudget(budgetId, (draft) => ({
+      ...draft,
+      lines: draft.lines.filter((line) => line.id !== lineId),
+    }));
+  };
+
+  const requestBudgetAreaImport = (budgetId: string) => {
+    pendingBudgetImportIdRef.current = budgetId;
+    budgetFileInputRef.current?.click();
+  };
+
+  const handleBudgetAreaFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    const budgetId = pendingBudgetImportIdRef.current;
+    if (!file || !budgetId) return;
+    if (!file.name.toLowerCase().endsWith(".xlsx")) {
+      setBudgetUploadState({ status: "error", fileName: file.name, message: "Selecciona un archivo .xlsx basado en la plantilla de áreas." });
+      event.target.value = "";
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setBudgetUploadState({ status: "error", fileName: file.name, message: "El archivo supera el límite de 20 MB." });
+      event.target.value = "";
+      return;
+    }
+
+    setBudgetUploadState({ status: "loading", fileName: file.name });
+    try {
+      const { importAreaBudgetWorkbook } = await import("./import/areaBudgetWorkbook");
+      const result = importAreaBudgetWorkbook(
+        await file.arrayBuffer(),
+        workbook.costIndicators,
+        file.name,
+      );
+      const errors = result.quality.issues.filter((issue) => issue.severity === "error");
+      if (errors.length > 0) {
+        throw new Error(errors.slice(0, 2).map((issue) => issue.message).join(" "));
+      }
+
+      updateBudget(budgetId, (draft) => {
+        const importedByIndicator = new Map(
+          result.lines.map((line) => [line.indicator.id, line] as const),
+        );
+        const merged = draft.lines.map((line) => {
+          const imported = importedByIndicator.get(line.indicatorId);
+          if (!imported) return line;
+          importedByIndicator.delete(line.indicatorId);
+          return {
+            ...line,
+            quantity: imported.quantity,
+            adjustmentPerUnit: imported.adjustmentPerUnit,
+          };
+        });
+        for (const imported of importedByIndicator.values()) {
+          merged.push({
+            id: createClientId("linea"),
+            indicatorId: imported.indicator.id,
+            quantity: imported.quantity,
+            adjustmentPerUnit: imported.adjustmentPerUnit,
+          });
+        }
+        return { ...draft, lines: merged };
+      });
+
+      const warningCount = result.quality.issues.filter((issue) => issue.severity === "warning").length;
+      setActiveBudgetId(budgetId);
+      setBudgetUploadState({
+        status: "success",
+        fileName: file.name,
+        message: `${result.lines.length} ${result.lines.length === 1 ? "fila aplicada" : "filas aplicadas"}${warningCount ? ` · ${warningCount} ${warningCount === 1 ? "aviso" : "avisos"} por revisar` : ""}.`,
+      });
+    } catch (error) {
+      setBudgetUploadState({
+        status: "error",
+        fileName: file.name,
+        message: error instanceof Error ? error.message : "No fue posible leer el cuadro de áreas.",
+      });
+    } finally {
+      event.target.value = "";
+      pendingBudgetImportIdRef.current = null;
+    }
+  };
+
+  const downloadBudgetAreaTemplate = async () => {
+    const { downloadAreaBudgetTemplate } = await import("./import/areaBudgetWorkbook");
+    downloadAreaBudgetTemplate(workbook.costIndicators);
   };
 
   const duplicateScenario = () => {
@@ -439,10 +633,25 @@ function App() {
           <button className="sidebar-close" onClick={() => setSidebarOpen(false)} aria-label="Cerrar menú"><PanelLeftClose size={19} /></button>
         </div>
 
-        <div className="workspace-card">
+        <div className="workspace-card workspace-selector">
           <div className="workspace-icon"><Home size={18} /></div>
-          <div><span>Proyecto activo</span><strong>Villas del Pinar</strong></div>
-          <ChevronDown size={16} />
+          <label>
+            <span>Proyecto activo</span>
+            <select
+              aria-label="Proyecto activo"
+              value={activeCostProjectId}
+              onChange={(event) => {
+                setActiveCostProjectId(event.target.value as ActiveCostProject);
+                setActiveView("references");
+                setSidebarOpen(false);
+              }}
+            >
+              <option value="all">Todos los proyectos</option>
+              {COST_PROJECTS.map((project) => (
+                <option key={project.id} value={project.id}>{project.label}</option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <nav className="main-nav" aria-label="Navegación principal">
@@ -482,11 +691,21 @@ function App() {
             <div><span>Cabidas presupuestales <ArrowRight size={12} /> Fase 1</span><strong>{currentTitle}</strong></div>
           </div>
           <div className="topbar-actions">
-            <span className="source-status">
-              <StatusDot status={workbook.quality.status === "validated" ? "good" : "warning"} />
-              {workbook.quality.status === "validated" ? "Fuente conciliada" : "Fuente con observaciones"}
-            </span>
-            <button className="button button-ghost" onClick={exportSelectedScenario}><Download size={17} /><span>Exportar CSV</span></button>
+            <label className="top-project-selector">
+              <span>Proyecto activo</span>
+              <select
+                aria-label="Proyecto activo en la barra superior"
+                value={activeCostProjectId}
+                onChange={(event) => {
+                  setActiveCostProjectId(event.target.value as ActiveCostProject);
+                  setActiveView("references");
+                }}
+              >
+                <option value="all">Todos los proyectos</option>
+                {COST_PROJECTS.map((project) => <option key={project.id} value={project.id}>{project.label}</option>)}
+              </select>
+            </label>
+            <button className="button button-primary top-new-budget" onClick={createBudget}><Plus size={17} /><span>Nuevo presupuesto</span></button>
           </div>
         </header>
 
@@ -517,7 +736,7 @@ function App() {
             <h1>Decidir con números<br />{" "}que se pueden explicar.</h1>
             <p>Compara mezclas VIS / No VIS y entiende qué capítulo mueve el presupuesto antes de avanzar a estudios de detalle.</p>
             <div className="hero-actions">
-              <button className="button button-primary" onClick={() => setActiveView("scenarios")}>Abrir simulador <ArrowRight size={17} /></button>
+              <button className="button button-primary" onClick={createBudget}>Nuevo presupuesto <ArrowRight size={17} /></button>
               <button className="button button-dark-ghost" onClick={() => setActiveView("references")}><BookOpenText size={17} /> Ver indicadores</button>
             </div>
           </div>
@@ -604,6 +823,61 @@ function App() {
   }
 
   function renderScenarios() {
+    return (
+      <>
+        <section className="page-heading budget-page-heading">
+          <div>
+            <span className="eyebrow">Presupuestos editables</span>
+            <h1>Nuevo presupuesto por indicadores</h1>
+            <p>Elige referentes de cualquiera de los siete proyectos, ingresa o importa las áreas y revisa el cálculo inmediatamente.</p>
+          </div>
+          <div className="heading-actions">
+            <button className="button button-ghost" onClick={downloadBudgetAreaTemplate}><Download size={16} /> Descargar plantilla de áreas</button>
+          </div>
+        </section>
+
+        <input
+          ref={budgetFileInputRef}
+          className="sr-only"
+          type="file"
+          accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+          onChange={handleBudgetAreaFile}
+        />
+
+        {budgetUploadState.status === "success" || budgetUploadState.status === "error" ? (
+          <div className={`budget-import-feedback is-${budgetUploadState.status}`} role="status">
+            {budgetUploadState.status === "success" ? <CheckCircle2 size={18} /> : <CircleAlert size={18} />}
+            <div><strong>{budgetUploadState.status === "success" ? "Cuadro de áreas cargado" : "No se pudo cargar el cuadro"}</strong><span>{budgetUploadState.message}</span></div>
+            <button onClick={() => setBudgetUploadState({ status: "idle" })} aria-label="Cerrar mensaje"><X size={15} /></button>
+          </div>
+        ) : null}
+
+        <BudgetWorkspace
+          drafts={budgetDrafts}
+          activeDraftId={activeBudgetId}
+          catalog={workbook.costIndicators}
+          projectDefinitions={COST_PROJECTS}
+          onSelectDraft={setActiveBudgetId}
+          onRenameDraft={renameBudget}
+          onCreateDraft={createBudget}
+          onDuplicateDraft={duplicateBudget}
+          onAddLine={addBudgetLine}
+          onUpdateLine={updateBudgetLine}
+          onRemoveLine={removeBudgetLine}
+          onImportAreas={requestBudgetAreaImport}
+          isImporting={budgetUploadState.status === "loading"}
+        />
+
+        <div className="governance-note budget-governance-note">
+          <ShieldCheck size={22} />
+          <div><strong>Cálculo editable y trazable</strong><p>La cantidad y el ajuste pertenecen solo a este presupuesto. Las tarifas originales del catálogo nunca se modifican.</p></div>
+          <button onClick={() => setActiveView("references")}>Consultar indicadores <ArrowRight size={15} /></button>
+        </div>
+      </>
+    );
+  }
+
+  function renderLegacyScenarios() {
     const config = configFor(selectedScenario.id);
     const selectedLine = currentEstimate.lineItems.find((line) => line.chapter === selectedChapter) ?? currentEstimate.lineItems[0];
     const sellableArea = (selectedScenario.areas.sellableVis ?? 0) + (selectedScenario.areas.sellableNonVis ?? 0);
@@ -729,57 +1003,69 @@ function App() {
 
   function renderReferences() {
     const query = referenceSearch.trim().toLocaleLowerCase("es");
-    const indicators = workbook.costIndicators.filter((indicator) => {
-      const matchesType = projectTypeFilter === "all" || indicator.projectType === projectTypeFilter;
-      const matchesSearch = !query || [
-        indicator.concept,
-        indicator.project,
-        indicator.groupLabel,
-        indicator.originalUnit,
-        INDICATOR_USAGE_LABELS[indicator.usage],
-        indicator.source.sheet,
-        indicator.source.cell,
-      ].some((value) => value.toLocaleLowerCase("es").includes(query));
-      return matchesType && matchesSearch;
-    });
-    const groupedIndicators = Array.from(
-      indicators.reduce((groups, indicator) => {
-        const current = groups.get(indicator.groupId) ?? [];
-        current.push(indicator);
-        groups.set(indicator.groupId, current);
-        return groups;
-      }, new Map<string, CostIndicator[]>()),
+    const selectedProjects = activeCostProjectId === "all"
+      ? costProjectCatalog
+      : costProjectCatalog.filter((project) => project.id === activeCostProjectId);
+    const projectCards = selectedProjects
+      .map((project) => ({
+        ...project,
+        blocks: project.blocks
+          .map((block) => ({
+            ...block,
+            indicators: block.indicators.filter((indicator) => !query || [
+              indicator.concept,
+              indicator.project,
+              indicator.groupLabel,
+              indicator.originalUnit,
+              INDICATOR_USAGE_LABELS[indicator.usage],
+              indicator.source.sheet,
+              indicator.source.cell,
+            ].some((value) => value.toLocaleLowerCase("es").includes(query))),
+          }))
+          .filter((block) => block.indicators.length > 0),
+      }))
+      .filter((project) => project.blocks.length > 0);
+    const visibleIndicators = projectCards.flatMap((project) =>
+      project.blocks.flatMap((block) => block.indicators),
     );
-    const projectCount = new Set(workbook.costIndicators.map((indicator) => indicator.project)).size;
-    const projectTypeCount = new Set(workbook.costIndicators.map((indicator) => indicator.projectType)).size;
-    const selectableCount = workbook.costIndicators.filter((indicator) => indicator.usage === "selectable").length;
-    const typeFilters: Array<{ id: ProjectTypeFilter; label: string }> = [
-      { id: "all", label: "Todos" },
-      { id: "residential-tower", label: "Vivienda en torre" },
-      { id: "office", label: "Oficinas" },
-      { id: "houses", label: "Casas" },
-    ];
+    const scopedIndicators = selectedProjects.flatMap((project) => project.indicators);
+    const scopedBlockCount = selectedProjects.reduce((total, project) => total + project.blocks.length, 0);
+    const selectableCount = scopedIndicators.filter((indicator) => indicator.usage === "selectable").length;
 
     return (
       <>
-        <section className="page-heading"><div><span className="eyebrow">Catálogo completo · hoja Indicadores costos</span><h1>Indicadores de costo</h1><p>Consulta todos los indicadores por tipo de proyecto y bloque, incluidos los que aún no se usan en un presupuesto.</p></div><button className="button button-primary" onClick={() => setActiveView("import")}><UploadCloud size={16} /> Actualizar desde Excel</button></section>
+        <section className="page-heading"><div><span className="eyebrow">Hoja completa · Indicadores costos</span><h1>Indicadores de costo por proyecto</h1><p>Selecciona un proyecto y consulta todos sus cuadros exactamente con las tarifas, áreas y ajustes de la fuente.</p></div><button className="button button-ghost" onClick={() => setActiveView("import")}><UploadCloud size={16} /> Actualizar catálogo</button></section>
         <section className="reference-stats">
-          <div><span className="stat-icon blue"><Database size={19} /></span><p><strong>{workbook.costIndicators.length}</strong><small>indicadores en catálogo</small></p></div>
-          <div><span className="stat-icon green"><Building2 size={19} /></span><p><strong>{projectCount}</strong><small>proyectos históricos</small></p></div>
-          <div><span className="stat-icon amber"><TableProperties size={19} /></span><p><strong>{projectTypeCount}</strong><small>tipos de proyecto</small></p></div>
+          <div><span className="stat-icon blue"><Database size={19} /></span><p><strong>{scopedIndicators.length}</strong><small>indicadores visibles</small></p></div>
+          <div><span className="stat-icon green"><Building2 size={19} /></span><p><strong>{selectedProjects.length}</strong><small>{selectedProjects.length === 1 ? "proyecto seleccionado" : "proyectos históricos"}</small></p></div>
+          <div><span className="stat-icon amber"><TableProperties size={19} /></span><p><strong>{scopedBlockCount}</strong><small>cuadros de indicadores</small></p></div>
           <div><span className="stat-icon ink"><CheckCircle2 size={19} /></span><p><strong>{selectableCount}</strong><small>disponibles como referente</small></p></div>
         </section>
-        <article className="card reference-table-card">
-          <div className="catalog-filter" role="group" aria-label="Filtrar por tipo de proyecto">
-            {typeFilters.map((filter) => <button key={filter.id} className={projectTypeFilter === filter.id ? "is-active" : ""} onClick={() => setProjectTypeFilter(filter.id)}>{filter.label}<span>{filter.id === "all" ? workbook.costIndicators.length : workbook.costIndicators.filter((indicator) => indicator.projectType === filter.id).length}</span></button>)}
+        <section className="project-catalog" aria-label="Proyectos de indicadores">
+          <div className="catalog-filter project-filter" role="group" aria-label="Seleccionar proyecto de indicadores">
+            <button className={activeCostProjectId === "all" ? "is-active" : ""} onClick={() => setActiveCostProjectId("all")}>Todos<span>{workbook.costIndicators.length}</span></button>
+            {costProjectCatalog.map((project) => <button key={project.id} className={activeCostProjectId === project.id ? "is-active" : ""} onClick={() => setActiveCostProjectId(project.id)}>{project.label}<span>{project.indicators.length}</span></button>)}
           </div>
-          <div className="reference-toolbar"><div className="search-box"><Search size={17} /><input value={referenceSearch} onChange={(event) => setReferenceSearch(event.target.value)} placeholder="Buscar concepto, proyecto, bloque o fuente…" />{referenceSearch ? <button onClick={() => setReferenceSearch("")} aria-label="Limpiar búsqueda"><X size={15} /></button> : null}</div><span className="soft-badge">{indicators.length} resultados · {groupedIndicators.length} bloques</span></div>
-          <div className="table-scroll"><table className="data-table reference-table catalog-table"><thead><tr><th>Concepto</th><th>Valor histórico</th><th>Base</th><th>Tarifa final</th><th>Unidad</th><th>Fuente</th><th>Estado / uso</th></tr></thead><tbody>{groupedIndicators.map(([groupId, group]) => {
-            const first = group[0];
-            return <Fragment key={groupId}><tr className="catalog-group-row"><td colSpan={7}><div className="catalog-group-content"><div className="catalog-group-copy"><strong>{first.groupLabel}</strong><span>{first.project} · {PROJECT_TYPE_LABELS[first.projectType]} · Base {first.baseYear}{first.floorCount ? ` · ${first.floorCount} pisos` : ""}</span></div><small>{group.length} {group.length === 1 ? "indicador" : "indicadores"}</small></div></td></tr>{group.map((indicator) => <CostIndicatorRow key={indicator.id} indicator={indicator} />)}</Fragment>;
-          })}{indicators.length === 0 ? <tr className="catalog-empty"><td colSpan={7}>No hay indicadores que coincidan con los filtros.</td></tr> : null}</tbody></table></div>
-        </article>
-        <div className="governance-note"><ShieldCheck size={22} /><div><strong>Catálogo visible, selección controlada</strong><p>Todas las filas permanecen consultables. Solo los indicadores completos y comparables se ofrecen como referentes en los escenarios.</p></div><button onClick={() => setActiveView("import")}>Ver control de calidad <ArrowRight size={15} /></button></div>
+          <div className="reference-toolbar card"><div className="search-box"><Search size={17} /><input value={referenceSearch} onChange={(event) => setReferenceSearch(event.target.value)} placeholder="Buscar capítulo, cuadro, proyecto o celda…" />{referenceSearch ? <button onClick={() => setReferenceSearch("")} aria-label="Limpiar búsqueda"><X size={15} /></button> : null}</div><span className="soft-badge">{visibleIndicators.length} resultados</span></div>
+          <div className="project-catalog-results">
+            {projectCards.map((project) => (
+              <section className="catalog-project-section" key={project.id}>
+                <div className="catalog-project-heading"><div><span className="eyebrow">Proyecto referente</span><h2>{project.label}</h2></div><span>{project.indicators.length} indicadores · {project.blocks.length} {project.blocks.length === 1 ? "cuadro" : "cuadros"}</span></div>
+                <div className="catalog-block-list">
+                  {project.blocks.map((block) => {
+                    const first = block.indicators[0];
+                    return <article className="card catalog-block-card" key={block.id}>
+                      <div className="catalog-block-heading"><div><strong>{block.label}</strong><span>Base {first?.baseYear ?? workbook.metadata.baseYear}{first?.floorCount ? ` · ${first.floorCount} pisos` : ""}</span></div><small>{block.indicators.length} {block.indicators.length === 1 ? "indicador" : "indicadores"}</small></div>
+                      <div className="table-scroll"><table className="data-table reference-table catalog-source-table"><thead><tr><th>Capítulo</th><th>UN</th><th>Valor</th><th>Área</th><th>VR/M²</th><th>Ajuste M²</th><th>VR/M² + ajuste</th><th>Estado</th></tr></thead><tbody>{block.indicators.map((indicator) => <CostIndicatorRow key={indicator.id} indicator={indicator} />)}</tbody></table></div>
+                    </article>;
+                  })}
+                </div>
+              </section>
+            ))}
+            {projectCards.length === 0 ? <article className="card catalog-empty-state"><Search size={24} /><strong>Sin coincidencias</strong><p>Prueba otro texto o vuelve a mostrar todos los proyectos.</p></article> : null}
+          </div>
+        </section>
+        <div className="governance-note"><ShieldCheck size={22} /><div><strong>Los 45 indicadores permanecen visibles</strong><p>Los indicadores parciales, administrativos o por clasificar se muestran con su estado; la aplicación no los usa silenciosamente como referentes completos.</p></div><button onClick={() => setActiveView("import")}>Ver control de calidad <ArrowRight size={15} /></button></div>
       </>
     );
   }
@@ -852,7 +1138,16 @@ function TraceItem({ label, value, mono = false }: { label: string; value: strin
 
 function CostIndicatorRow({ indicator }: { indicator: CostIndicator }) {
   const chapters = indicator.compatibleChapters.map((chapter) => CHAPTER_LABELS[chapter]).join(" · ");
-  return <tr className="catalog-indicator-row"><td><strong>{indicator.concept}</strong><small>{chapters || "Sin capítulo asignado"}</small></td><td><strong>{formatCurrency(indicator.historicalAmount)}</strong><small>Valor registrado</small></td><td><strong>{formatNumber(indicator.basisQuantity)}</strong><small>Cantidad base</small></td><td><strong>{formatCurrency(indicator.finalRate)}</strong><small>{indicator.adjustmentPerUnit ? `${formatSignedCurrency(indicator.adjustmentPerUnit)} ajuste` : "Sin ajuste"}</small></td><td><span className="unit-pill">{indicator.originalUnit || "Sin unidad"}</span></td><td><code>{indicator.source.sheet}!{indicator.source.cell}</code><small>Fila original</small></td><td><span className={`usage-pill usage-${indicator.usage}`}><StatusDot status={indicator.usage === "selectable" ? "good" : indicator.usage === "unmapped" ? "warning" : "muted"} />{INDICATOR_USAGE_LABELS[indicator.usage]}</span></td></tr>;
+  return <tr className="catalog-indicator-row">
+    <td><strong>{indicator.concept}</strong><small>{chapters || "Sin capítulo asignado"} · {indicator.source.sheet}!{indicator.source.cell}</small></td>
+    <td><span className="unit-pill">{indicator.originalUnit || "—"}</span></td>
+    <td><strong>{formatCurrency(indicator.historicalAmount)}</strong></td>
+    <td><strong>{formatNumber(indicator.basisQuantity)}</strong></td>
+    <td><strong>{formatCurrency(indicator.unitRate)}</strong></td>
+    <td><strong>{formatSignedCurrency(indicator.adjustmentPerUnit)}</strong></td>
+    <td><strong>{formatCurrency(indicator.finalRate)}</strong></td>
+    <td><span className={`usage-pill usage-${indicator.usage}`}><StatusDot status={indicator.usage === "selectable" ? "good" : indicator.usage === "unmapped" ? "warning" : "muted"} />{INDICATOR_USAGE_LABELS[indicator.usage]}</span></td>
+  </tr>;
 }
 
 export default App;
