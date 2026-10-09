@@ -32,21 +32,43 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { type ChangeEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { BudgetWorkspace, type BudgetLineUpdate } from "./components/BudgetWorkspace";
+import {
+  ExecutiveSummary,
+  type ExecutiveAnalysis as ExecutiveUiAnalysis,
+  type ExecutiveComparison,
+  type ExecutiveMetric,
+  type ExecutiveSummaryLine,
+} from "./components/ExecutiveSummary";
 import { DEFAULT_WORKBOOK } from "./data/defaultWorkbook";
 import {
+  calculateBudget,
   createBudgetDraftFromProject,
+  snapshotBudgetIndicator,
   type BudgetDraft,
 } from "./domain/budget";
 import {
   buildCostProjectCatalog,
   COST_PROJECTS,
   filterCostIndicatorsByProject,
+  projectDisplayName,
+  resolveCostProjectId,
   type CostProjectId,
 } from "./domain/catalogProjects";
+import {
+  analyzeCalculatedBudget,
+  analyzeHistoricalProject,
+  type ExecutiveAnalysisReport,
+} from "./domain/executiveAnalysis";
 import { estimateScenario } from "./domain/estimate";
+import { loadProjectStorage, saveProjectStorage } from "./domain/projectStorage";
 import { suggestReferenceIds } from "./domain/referenceCandidates";
+import type {
+  ExecutivePdfComparisonSeries,
+  ExecutivePdfLine,
+  ExecutivePdfMetric,
+} from "./reports/executivePdf";
 import type {
   ChapterKey,
   CostIndicator,
@@ -70,12 +92,36 @@ import {
 } from "./utils/format";
 
 type View = "overview" | "scenarios" | "references" | "import";
-type ActiveCostProject = "all" | CostProjectId;
+type ActiveProjectKey = "all" | CostProjectId | `budget:${string}`;
 type UploadState =
   | { status: "idle" }
   | { status: "loading"; fileName: string }
   | { status: "success"; fileName: string; message: string }
   | { status: "error"; fileName?: string; message: string };
+type ProjectNotice = { tone: "success" | "error"; message: string } | null;
+
+interface ExecutiveNarrative {
+  summary: string;
+  recommendations: readonly string[];
+  clarifications: readonly string[];
+  reviewPoints: readonly string[];
+  methodologyNote: string;
+}
+
+interface ExecutiveOverviewModel {
+  projectName: string;
+  title: string;
+  subtitle: string;
+  statusLabel: string;
+  metrics: ExecutiveMetric[];
+  comparison: ExecutiveComparison;
+  lines: ExecutiveSummaryLine[];
+  narrative: ExecutiveNarrative;
+  pdfMetrics: ExecutivePdfMetric[];
+  pdfLines: ExecutivePdfLine[];
+  pdfSeries: ExecutivePdfComparisonSeries[];
+  editableBudgetId?: string;
+}
 
 const CHAPTER_LABELS: Record<ChapterKey, string> = {
   "vis-towers": "Torres VIS",
@@ -134,6 +180,18 @@ function createClientId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function isCostProjectId(value: string): value is CostProjectId {
+  return COST_PROJECTS.some((project) => project.id === value);
+}
+
+function budgetProjectKey(budgetId: string): `budget:${string}` {
+  return `budget:${budgetId}`;
+}
+
+function budgetIdFromProjectKey(value: ActiveProjectKey): string | null {
+  return value.startsWith("budget:") ? value.slice("budget:".length) : null;
+}
+
 function chapterAdjustmentPerUnit(line: EstimateLineItem): number {
   return line.adjustmentPerUnit;
 }
@@ -184,6 +242,7 @@ function StatusDot({ status }: { status: "good" | "warning" | "muted" }) {
 }
 
 function App() {
+  const [initialProjectStorage] = useState(() => loadProjectStorage());
   const [workbook, setWorkbook] = useState<WorkbookModel>(DEFAULT_WORKBOOK);
   const [scenarios, setScenarios] = useState<ScenarioInput[]>(() =>
     DEFAULT_WORKBOOK.scenarios.map(cloneScenario),
@@ -201,16 +260,27 @@ function App() {
     ),
   );
   const [referenceSearch, setReferenceSearch] = useState("");
-  const [activeCostProjectId, setActiveCostProjectId] = useState<ActiveCostProject>("all");
+  const [activeProjectKey, setActiveProjectKey] = useState<ActiveProjectKey>(() =>
+    initialProjectStorage.activeProjectId
+      ? budgetProjectKey(initialProjectStorage.activeProjectId)
+      : "all",
+  );
   const [selectedChapter, setSelectedChapter] = useState<ChapterKey>("vis-towers");
   const [manualReferenceSelections, setManualReferenceSelections] = useState<Set<string>>(
     () => new Set(),
   );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
-  const [budgetDrafts, setBudgetDrafts] = useState<BudgetDraft[]>([]);
-  const [activeBudgetId, setActiveBudgetId] = useState<string | null>(null);
+  const [budgetDrafts, setBudgetDrafts] = useState<BudgetDraft[]>(() =>
+    initialProjectStorage.projects,
+  );
+  const [activeBudgetId, setActiveBudgetId] = useState<string | null>(() =>
+    initialProjectStorage.activeProjectId ?? initialProjectStorage.projects[0]?.id ?? null,
+  );
   const [budgetUploadState, setBudgetUploadState] = useState<UploadState>({ status: "idle" });
+  const [projectNotice, setProjectNotice] = useState<ProjectNotice>(null);
+  const [analysisGeneratedAt, setAnalysisGeneratedAt] = useState<Record<string, string>>({});
+  const [exportingProjectKey, setExportingProjectKey] = useState<ActiveProjectKey | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const budgetFileInputRef = useRef<HTMLInputElement>(null);
   const pendingBudgetImportIdRef = useRef<string | null>(null);
@@ -233,6 +303,30 @@ function App() {
     () => buildCostProjectCatalog(workbook.costIndicators),
     [workbook.costIndicators],
   );
+
+  const activeHistoricalProjectId: "all" | CostProjectId = isCostProjectId(activeProjectKey)
+    ? activeProjectKey
+    : "all";
+  const activeSavedBudgetId = budgetIdFromProjectKey(activeProjectKey);
+  const savedBudgetDrafts = budgetDrafts.filter((draft) => draft.status === "active");
+
+  useEffect(() => {
+    const persistedActiveId = activeSavedBudgetId && savedBudgetDrafts.some(
+      (draft) => draft.id === activeSavedBudgetId,
+    ) ? activeSavedBudgetId : null;
+    saveProjectStorage({
+      projects: savedBudgetDrafts,
+      activeProjectId: persistedActiveId,
+    });
+  }, [budgetDrafts, activeSavedBudgetId]);
+
+  const selectActiveProject = (value: ActiveProjectKey) => {
+    setActiveProjectKey(value);
+    const budgetId = budgetIdFromProjectKey(value);
+    if (budgetId) setActiveBudgetId(budgetId);
+    setActiveView("overview");
+    setSidebarOpen(false);
+  };
 
   const selectedScenario =
     scenarios.find((scenario) => scenario.id === selectedScenarioId) ?? scenarios[0];
@@ -297,9 +391,12 @@ function App() {
   };
 
   const createBudget = () => {
-    const projectId: CostProjectId = activeCostProjectId === "all"
-      ? "serraclara"
-      : activeCostProjectId;
+    const selectedSavedBudget = activeSavedBudgetId
+      ? budgetDrafts.find((draft) => draft.id === activeSavedBudgetId)
+      : undefined;
+    const projectId: CostProjectId = isCostProjectId(activeProjectKey)
+      ? activeProjectKey
+      : resolveCostProjectId(selectedSavedBudget?.baseProjectId ?? "") ?? "serraclara";
     const id = createClientId("presupuesto");
     const draft = createBudgetDraftFromProject(
       {
@@ -309,9 +406,10 @@ function App() {
       },
       workbook.costIndicators,
     );
-    setBudgetDrafts((current) => [...current, draft]);
+    setBudgetDrafts((current) => [...current, { ...draft, status: "draft", areaM2: 0 }]);
     setActiveBudgetId(id);
     setBudgetUploadState({ status: "idle" });
+    setProjectNotice(null);
     setActiveView("scenarios");
     setSidebarOpen(false);
   };
@@ -320,8 +418,21 @@ function App() {
     budgetId: string,
     updater: (draft: BudgetDraft) => BudgetDraft,
   ) => {
+    setAnalysisGeneratedAt((current) => {
+      const key = budgetProjectKey(budgetId);
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
     setBudgetDrafts((current) =>
-      current.map((draft) => (draft.id === budgetId ? updater(draft) : draft)),
+      current.map((draft) => {
+        if (draft.id !== budgetId) return draft;
+        const updated = updater(draft);
+        return draft.status === "active"
+          ? { ...updated, status: "active", updatedAt: new Date().toISOString() }
+          : updated;
+      }),
     );
   };
 
@@ -337,6 +448,9 @@ function App() {
       ...structuredClone(source),
       id,
       name: `${source.name || "Presupuesto"} · copia`,
+      status: "draft",
+      savedAt: undefined,
+      updatedAt: undefined,
       lines: source.lines.map((line) => ({ ...line, id: createClientId("linea") })),
     };
     setBudgetDrafts((current) => [...current, copy]);
@@ -361,6 +475,7 @@ function App() {
           {
             id: createClientId("linea"),
             indicatorId: indicator.id,
+            indicatorSnapshot: snapshotBudgetIndicator(indicator),
             quantity: 0,
             adjustmentPerUnit: 0,
           },
@@ -374,10 +489,25 @@ function App() {
     lineId: string,
     changes: BudgetLineUpdate,
   ) => {
+    const selectedIndicator = changes.indicatorId === undefined
+      ? undefined
+      : workbook.costIndicators.find((indicator) => indicator.id === changes.indicatorId);
     updateBudget(budgetId, (draft) => ({
       ...draft,
       lines: draft.lines.map((line) =>
-        line.id === lineId ? { ...line, ...changes } : line,
+        line.id === lineId
+          ? {
+              ...line,
+              ...changes,
+              ...(changes.indicatorId === undefined
+                ? {}
+                : {
+                    indicatorSnapshot: selectedIndicator === undefined
+                      ? undefined
+                      : snapshotBudgetIndicator(selectedIndicator),
+                  }),
+            }
+          : line,
       ),
     }));
   };
@@ -387,6 +517,77 @@ function App() {
       ...draft,
       lines: draft.lines.filter((line) => line.id !== lineId),
     }));
+  };
+
+  const updateBudgetArea = (budgetId: string, areaM2: number) => {
+    updateBudget(budgetId, (draft) => ({
+      ...draft,
+      areaM2: Number.isFinite(areaM2) ? Math.max(0, areaM2) : 0,
+    }));
+  };
+
+  const saveBudgetAsActiveProject = (budgetId: string) => {
+    const draft = budgetDrafts.find((item) => item.id === budgetId);
+    if (!draft) return;
+    const name = draft.name.trim();
+    const calculated = calculateBudget(draft, workbook.costIndicators);
+    if (!name) {
+      setProjectNotice({ tone: "error", message: "Escribe un nombre para guardar el proyecto." });
+      return;
+    }
+    if (!calculated.lines.some((line) => line.quantity > 0 && line.amount > 0)) {
+      setProjectNotice({ tone: "error", message: "Ingresa al menos una cantidad mayor que cero antes de guardar." });
+      return;
+    }
+    if (calculated.issues.length > 0) {
+      setProjectNotice({ tone: "error", message: "Corrige las líneas inválidas antes de guardar el proyecto." });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    setBudgetDrafts((current) => current.map((item) => item.id === budgetId
+      ? {
+          ...item,
+          name,
+          status: "active",
+          savedAt: item.savedAt ?? now,
+          updatedAt: now,
+        }
+      : item));
+    setActiveBudgetId(budgetId);
+    setActiveProjectKey(budgetProjectKey(budgetId));
+    setProjectNotice({ tone: "success", message: `${name} quedó guardado en Proyectos activos.` });
+    setActiveView("overview");
+  };
+
+  const editSavedBudget = (budgetId: string) => {
+    setActiveBudgetId(budgetId);
+    setActiveView("scenarios");
+  };
+
+  const deleteBudget = (budgetId: string) => {
+    const draft = budgetDrafts.find((item) => item.id === budgetId);
+    if (!draft) return;
+    const shouldDelete = window.confirm(
+      `¿Eliminar el proyecto "${draft.name}"? Esta acción no se puede deshacer en este navegador.`,
+    );
+    if (!shouldDelete) return;
+
+    const remaining = budgetDrafts.filter((item) => item.id !== budgetId);
+    setAnalysisGeneratedAt((current) => {
+      const key = budgetProjectKey(budgetId);
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setBudgetDrafts(remaining);
+    setActiveBudgetId((current) => current === budgetId ? remaining[0]?.id ?? null : current);
+    if (activeSavedBudgetId === budgetId) {
+      setActiveProjectKey("all");
+      setActiveView("overview");
+    }
+    setProjectNotice({ tone: "success", message: `Se eliminó ${draft.name}.` });
   };
 
   const requestBudgetAreaImport = (budgetId: string) => {
@@ -440,6 +641,7 @@ function App() {
           merged.push({
             id: createClientId("linea"),
             indicatorId: imported.indicator.id,
+            indicatorSnapshot: snapshotBudgetIndicator(imported.indicator),
             quantity: imported.quantity,
             adjustmentPerUnit: imported.adjustmentPerUnit,
           });
@@ -593,6 +795,7 @@ function App() {
       setSelectedScenarioId(imported.scenarios[0]?.id ?? "");
       setComparisonScenarioId(imported.scenarios[1]?.id ?? imported.scenarios[0]?.id ?? "");
       setManualReferenceSelections(new Set());
+      setAnalysisGeneratedAt({});
       setUploadState({
         status: "success",
         fileName: file.name,
@@ -639,17 +842,18 @@ function App() {
             <span>Proyecto activo</span>
             <select
               aria-label="Proyecto activo"
-              value={activeCostProjectId}
-              onChange={(event) => {
-                setActiveCostProjectId(event.target.value as ActiveCostProject);
-                setActiveView("references");
-                setSidebarOpen(false);
-              }}
+              value={activeProjectKey}
+              onChange={(event) => selectActiveProject(event.target.value as ActiveProjectKey)}
             >
               <option value="all">Todos los proyectos</option>
-              {COST_PROJECTS.map((project) => (
-                <option key={project.id} value={project.id}>{project.label}</option>
-              ))}
+              <optgroup label="Proyectos de referencia">
+                {COST_PROJECTS.map((project) => (
+                  <option key={project.id} value={project.id}>{project.label}</option>
+                ))}
+              </optgroup>
+              {savedBudgetDrafts.length > 0 ? <optgroup label="Proyectos guardados">
+                {savedBudgetDrafts.map((draft) => <option key={draft.id} value={budgetProjectKey(draft.id)}>{draft.name}</option>)}
+              </optgroup> : null}
             </select>
           </label>
         </div>
@@ -695,14 +899,16 @@ function App() {
               <span>Proyecto activo</span>
               <select
                 aria-label="Proyecto activo en la barra superior"
-                value={activeCostProjectId}
-                onChange={(event) => {
-                  setActiveCostProjectId(event.target.value as ActiveCostProject);
-                  setActiveView("references");
-                }}
+                value={activeProjectKey}
+                onChange={(event) => selectActiveProject(event.target.value as ActiveProjectKey)}
               >
                 <option value="all">Todos los proyectos</option>
-                {COST_PROJECTS.map((project) => <option key={project.id} value={project.id}>{project.label}</option>)}
+                <optgroup label="Proyectos de referencia">
+                  {COST_PROJECTS.map((project) => <option key={project.id} value={project.id}>{project.label}</option>)}
+                </optgroup>
+                {savedBudgetDrafts.length > 0 ? <optgroup label="Proyectos guardados">
+                  {savedBudgetDrafts.map((draft) => <option key={draft.id} value={budgetProjectKey(draft.id)}>{draft.name}</option>)}
+                </optgroup> : null}
               </select>
             </label>
             <button className="button button-primary top-new-budget" onClick={createBudget}><Plus size={17} /><span>Nuevo presupuesto</span></button>
@@ -710,6 +916,11 @@ function App() {
         </header>
 
         <div className="page-content">
+          {projectNotice ? <div className={`project-notice is-${projectNotice.tone}`} role="status">
+            {projectNotice.tone === "success" ? <CheckCircle2 size={18} /> : <CircleAlert size={18} />}
+            <span>{projectNotice.message}</span>
+            <button onClick={() => setProjectNotice(null)} aria-label="Cerrar aviso"><X size={15} /></button>
+          </div> : null}
           {activeView === "overview" && renderOverview()}
           {activeView === "scenarios" && renderScenarios()}
           {activeView === "references" && renderReferences()}
@@ -719,106 +930,521 @@ function App() {
     </div>
   );
 
+  function buildHistoricalOverview(projectId: CostProjectId): ExecutiveOverviewModel {
+    const report: ExecutiveAnalysisReport = analyzeHistoricalProject(
+      projectId,
+      workbook.costIndicators,
+    );
+    const entry = costProjectCatalog.find((project) => project.id === projectId);
+    const sourceIndicators = entry?.indicators ?? [];
+    const indicatorById = new Map(sourceIndicators.map((indicator) => [indicator.id, indicator]));
+    const partialCount = sourceIndicators.filter((indicator) => indicator.usage === "partial").length;
+    const chartLines = [...report.composition]
+      .filter((line) => line.referenceRate !== null && line.evaluatedRate !== null)
+      .sort((left, right) => right.amount - left.amount)
+      .slice(0, 6);
+
+    const comparison: ExecutiveComparison = {
+      title: "Tarifas base y tarifas finales",
+      description: "Comparación por unidad de los capítulos con mayor valor histórico incluido.",
+      primarySeries: { id: "final", label: "Tarifa final" },
+      secondarySeries: { id: "base", label: "Tarifa base" },
+      categories: chartLines.map((line) => ({
+        id: line.id,
+        label: line.label,
+        primaryValue: line.evaluatedRate ?? 0,
+        primaryLabel: formatCurrency(line.evaluatedRate ?? 0),
+        secondaryValue: line.referenceRate ?? 0,
+        secondaryLabel: formatCurrency(line.referenceRate ?? 0),
+      })),
+    };
+
+    const lines: ExecutiveSummaryLine[] = report.composition.map((line) => {
+      const indicator = indicatorById.get(line.indicatorId);
+      const needsReview = line.usage !== "selectable";
+      return {
+        id: line.id,
+        chapter: line.label,
+        referenceProject: line.referenceProject,
+        referenceIndicator: indicator?.groupLabel ?? "Indicador histórico",
+        quantity: formatNumber(line.quantity, line.unit),
+        unitRate: formatCurrency(line.evaluatedRate ?? 0),
+        total: formatCurrency(line.amount),
+        status: needsReview
+          ? { label: "Revisar alcance", tone: "warning" }
+          : { label: "Incluido", tone: "good" },
+      };
+    });
+
+    const yearLabel = report.sourceYears.length > 0
+      ? report.sourceYears.join(" · ")
+      : "Sin dato";
+
+    return {
+      projectName: report.subjectName,
+      title: `Resumen ejecutivo · ${report.subjectName}`,
+      subtitle: "Lectura consolidada del proyecto de referencia seleccionado, sin doble contar desgloses parciales.",
+      statusLabel: "Referencia histórica · no editable",
+      metrics: [
+        {
+          id: "historical-total",
+          label: "Valor histórico consolidado",
+          value: formatCompactCurrency(report.metrics.totalAmount),
+          note: "Escala de la fuente; no es un presupuesto vigente.",
+          icon: "budget",
+          tone: "blue",
+        },
+        {
+          id: "included-lines",
+          label: "Indicadores incluidos",
+          value: formatNumber(report.metrics.lineCount),
+          note: `${sourceIndicators.length} renglones visibles en el catálogo.`,
+          icon: "lines",
+          tone: "green",
+        },
+        {
+          id: "partials",
+          label: "Desgloses excluidos",
+          value: formatNumber(partialCount),
+          note: "Se excluyen del total para evitar duplicidades.",
+          icon: "variance",
+          tone: partialCount > 0 ? "amber" : "green",
+        },
+        {
+          id: "base-year",
+          label: "Año base",
+          value: yearLabel,
+          note: "Debe actualizarse al mes de corte antes de decidir.",
+          icon: "project",
+          tone: "ink",
+        },
+      ],
+      comparison,
+      lines,
+      narrative: report,
+      pdfMetrics: [
+        { label: "Valor histórico consolidado", value: report.metrics.totalAmount, format: "cop", detail: "Escala de la fuente" },
+        { label: "Indicadores incluidos", value: report.metrics.lineCount, format: "number" },
+        { label: "Desgloses excluidos", value: partialCount, format: "number" },
+        { label: "Año base", value: yearLabel, format: "text" },
+      ],
+      pdfLines: report.composition.map((line) => ({
+        concept: line.label,
+        referenceProject: line.referenceProject,
+        unit: line.unit,
+        quantity: line.quantity,
+        unitRate: line.evaluatedRate ?? 0,
+        total: line.amount,
+      })),
+      pdfSeries: [
+        {
+          title: "Tarifa final por capítulo",
+          format: "cop",
+          items: chartLines.map((line) => ({ label: line.label, value: line.evaluatedRate ?? 0, color: "#2563eb" })),
+        },
+        {
+          title: "Tarifa base por capítulo",
+          format: "cop",
+          items: chartLines.map((line) => ({ label: line.label, value: line.referenceRate ?? 0, color: "#8b5cf6" })),
+        },
+      ],
+    };
+  }
+
+  function buildBudgetOverview(draft: BudgetDraft): ExecutiveOverviewModel {
+    const calculated = calculateBudget(draft, workbook.costIndicators);
+    const report: ExecutiveAnalysisReport = analyzeCalculatedBudget(
+      draft,
+      calculated,
+      workbook.costIndicators,
+    );
+    const indicatorById = new Map(
+      calculated.lines.flatMap((line) =>
+        line.indicator === null ? [] : [[line.indicatorId, line.indicator] as const],
+      ),
+    );
+    const amountById = new Map(report.composition.map((line) => [line.id, line.amount]));
+    const chartLines = [...report.comparisons]
+      .filter((line) => line.referenceRate !== null && line.evaluatedRate !== null)
+      .sort((left, right) => (amountById.get(right.id) ?? 0) - (amountById.get(left.id) ?? 0))
+      .slice(0, 6);
+    const areaNote = report.metrics.areaM2 === null
+      ? "Registra el área total para calcular este indicador."
+      : `${formatNumber(report.metrics.areaM2, "m²")} registrados.`;
+    const adjustmentNote = report.metrics.adjustmentRate === null
+      ? "Sin base suficiente para calcular la variación."
+      : `${formatPercent(report.metrics.adjustmentRate)} frente a las tarifas base.`;
+
+    return {
+      projectName: draft.name,
+      title: `Resumen ejecutivo · ${draft.name}`,
+      subtitle: "Presupuesto activo calculado con cantidades, referentes y ajustes editables.",
+      statusLabel: "Proyecto activo · guardado en este navegador",
+      metrics: [
+        {
+          id: "budget-total",
+          label: "Presupuesto calculado",
+          value: formatCompactCurrency(report.metrics.totalAmount),
+          note: `${report.metrics.pricedLineCount} de ${report.metrics.lineCount} partidas con valor.`,
+          icon: "budget",
+          tone: "blue",
+        },
+        {
+          id: "cost-m2",
+          label: "Costo por m²",
+          value: report.metrics.costPerM2 === null ? "Pendiente" : formatCurrency(report.metrics.costPerM2),
+          note: areaNote,
+          icon: "unit-cost",
+          tone: report.metrics.costPerM2 === null ? "amber" : "green",
+        },
+        {
+          id: "base-total",
+          label: "Valor con tarifas base",
+          value: formatCompactCurrency(report.metrics.referenceBaseAmount),
+          note: "Antes de los ajustes unitarios del presupuesto.",
+          icon: "project",
+          tone: "ink",
+        },
+        {
+          id: "adjustment",
+          label: "Ajuste neto",
+          value: formatSignedCurrency(report.metrics.adjustmentAmount),
+          note: adjustmentNote,
+          icon: "variance",
+          tone: Math.abs(report.metrics.adjustmentRate ?? 0) >= 0.1 ? "amber" : "green",
+        },
+      ],
+      comparison: {
+        title: "Tarifa evaluada frente al referente",
+        description: "Muestra el efecto del ajuste unitario en las partidas de mayor valor.",
+        primarySeries: { id: "evaluated", label: "Tarifa evaluada" },
+        secondarySeries: { id: "reference", label: "Tarifa referente" },
+        categories: chartLines.map((line) => ({
+          id: line.id,
+          label: line.label,
+          primaryValue: line.evaluatedRate ?? 0,
+          primaryLabel: formatCurrency(line.evaluatedRate ?? 0),
+          secondaryValue: line.referenceRate ?? 0,
+          secondaryLabel: formatCurrency(line.referenceRate ?? 0),
+        })),
+      },
+      lines: report.composition.map((line) => {
+        const indicator = indicatorById.get(line.indicatorId);
+        const hasWarning = line.hasCalculationIssues || line.usage !== "selectable";
+        return {
+          id: line.id,
+          chapter: line.label,
+          referenceProject: line.referenceProject,
+          referenceIndicator: indicator?.groupLabel ?? "Indicador no encontrado",
+          quantity: formatNumber(line.quantity, line.unit),
+          unitRate: line.evaluatedRate === null ? "Sin tarifa" : formatCurrency(line.evaluatedRate),
+          total: formatCurrency(line.amount),
+          status: hasWarning
+            ? { label: line.hasCalculationIssues ? "Corregir" : "Revisar alcance", tone: line.hasCalculationIssues ? "danger" : "warning" }
+            : { label: "Calculado", tone: "good" },
+        };
+      }),
+      narrative: report,
+      pdfMetrics: [
+        { label: "Presupuesto calculado", value: report.metrics.totalAmount, format: "cop" },
+        { label: "Valor con tarifas base", value: report.metrics.referenceBaseAmount, format: "cop" },
+        { label: "Ajuste neto", value: report.metrics.adjustmentAmount, format: "cop", detail: adjustmentNote },
+        { label: "Costo por m²", value: report.metrics.costPerM2 ?? "Pendiente", format: report.metrics.costPerM2 === null ? "text" : "cop", detail: areaNote },
+      ],
+      pdfLines: report.composition.map((line) => ({
+        concept: line.label,
+        referenceProject: line.referenceProject,
+        unit: line.unit,
+        quantity: line.quantity,
+        unitRate: line.evaluatedRate ?? 0,
+        total: line.amount,
+      })),
+      pdfSeries: [
+        {
+          title: "Tarifa evaluada",
+          format: "cop",
+          items: chartLines.map((line) => ({ label: line.label, value: line.evaluatedRate ?? 0, color: "#2563eb" })),
+        },
+        {
+          title: "Tarifa referente",
+          format: "cop",
+          items: chartLines.map((line) => ({ label: line.label, value: line.referenceRate ?? 0, color: "#8b5cf6" })),
+        },
+      ],
+      editableBudgetId: draft.id,
+    };
+  }
+
+  function buildPortfolioOverview(): ExecutiveOverviewModel {
+    const historicalReports = COST_PROJECTS.map((project) => ({
+      project,
+      report: analyzeHistoricalProject(project.id, workbook.costIndicators),
+    }));
+    const historicalTotal = historicalReports.reduce(
+      (total, item) => total + item.report.metrics.totalAmount,
+      0,
+    );
+    const historicalAverage = historicalReports.length > 0
+      ? historicalTotal / historicalReports.length
+      : 0;
+    const activeProjects = savedBudgetDrafts.map((draft) => {
+      const calculated = calculateBudget(draft, workbook.costIndicators);
+      return {
+        draft,
+        calculated,
+        report: analyzeCalculatedBudget(draft, calculated, workbook.costIndicators),
+      };
+    });
+    const activeTotal = activeProjects.reduce(
+      (total, project) => total + project.report.metrics.totalAmount,
+      0,
+    );
+    const projectsWithoutArea = activeProjects.filter(
+      (project) => project.report.metrics.areaM2 === null,
+    ).length;
+    const partialCount = workbook.costIndicators.filter(
+      (indicator) => indicator.usage === "partial",
+    ).length;
+    const portfolioLines: ExecutiveSummaryLine[] = [
+      ...activeProjects.map(({ draft, report }) => ({
+        id: `active-${draft.id}`,
+        chapter: draft.name,
+        referenceProject: report.referenceProjects.join(", ") || projectDisplayName(draft.baseProjectId),
+        referenceIndicator: `${report.metrics.pricedLineCount} partidas con valor`,
+        quantity: report.metrics.areaM2 === null ? "Área pendiente" : formatNumber(report.metrics.areaM2, "m²"),
+        unitRate: report.metrics.costPerM2 === null ? "Pendiente" : `${formatCurrency(report.metrics.costPerM2)}/m²`,
+        total: formatCurrency(report.metrics.totalAmount),
+        status: { label: "Proyecto activo", tone: "good" as const },
+      })),
+      ...historicalReports.map(({ project, report }) => ({
+        id: `reference-${project.id}`,
+        chapter: project.label,
+        referenceProject: project.label,
+        referenceIndicator: `${report.metrics.lineCount} indicadores consolidados`,
+        quantity: "No homologada",
+        unitRate: "No comparable",
+        total: formatCurrency(report.metrics.totalAmount),
+        status: { label: "Referencia histórica", tone: "neutral" as const },
+      })),
+    ];
+
+    const recommendations = [
+      activeProjects.length === 0
+        ? "Crear y guardar un presupuesto para incorporarlo al portafolio de proyectos activos."
+        : "Seleccionar cada proyecto activo para revisar sus partidas, ajustes y concentración antes de aprobación.",
+      "Homologar alcance, fecha, tipología y ubicación antes de comparar los valores históricos entre proyectos.",
+      "Actualizar las tarifas al mes de corte con fuentes oficiales aplicables en Colombia, incluido el ICOCED del DANE cuando corresponda.",
+    ];
+    const clarifications = [
+      "Los valores históricos son escalas registradas en la fuente; no son ofertas vigentes ni costos por m² directamente comparables.",
+      `El consolidado excluye ${partialCount} renglones parciales para evitar doble conteo.`,
+      "El análisis es automático y local: no consulta precios, normas ni índices en tiempo real.",
+    ];
+    const reviewPoints = [
+      projectsWithoutArea > 0
+        ? `${projectsWithoutArea} proyecto${projectsWithoutArea === 1 ? " activo no tiene" : "s activos no tienen"} área total registrada; no se puede calcular su costo por m².`
+        : "Los proyectos activos con valor cuentan con un área explícita para calcular costo por m².",
+      "Validar suelo, logística, licencias, servicios públicos, impuestos territoriales, contingencias y escalación para el predio específico.",
+      "La información se guarda localmente en este navegador; para trabajo multiusuario se requiere una base de datos y control de acceso.",
+    ];
+
+    return {
+      projectName: "Todos los proyectos",
+      title: "Resumen ejecutivo · Todos los proyectos",
+      subtitle: "Vista del catálogo histórico y de los presupuestos que has guardado como proyectos activos.",
+      statusLabel: `${COST_PROJECTS.length} referencias · ${activeProjects.length} proyectos activos`,
+      metrics: [
+        {
+          id: "reference-projects",
+          label: "Proyectos de referencia",
+          value: formatNumber(COST_PROJECTS.length),
+          note: `${workbook.costIndicators.length} indicadores disponibles.`,
+          icon: "project",
+          tone: "blue",
+        },
+        {
+          id: "active-projects",
+          label: "Proyectos activos",
+          value: formatNumber(activeProjects.length),
+          note: "Presupuestos guardados y editables.",
+          icon: "lines",
+          tone: "green",
+        },
+        {
+          id: "active-total",
+          label: "Total proyectos activos",
+          value: formatCompactCurrency(activeTotal),
+          note: activeProjects.length === 0 ? "Aún no hay proyectos guardados." : "Suma de presupuestos calculados.",
+          icon: "budget",
+          tone: "ink",
+        },
+        {
+          id: "historical-total",
+          label: "Escala histórica consolidada",
+          value: formatCompactCurrency(historicalTotal),
+          note: "Solo orientativa; los alcances no están homologados.",
+          icon: "variance",
+          tone: "amber",
+        },
+      ],
+      comparison: {
+        title: "Escala histórica por proyecto referente",
+        description: "Valores absolutos de fuente frente al promedio simple; no equivalen a costo por m².",
+        primarySeries: { id: "project", label: "Proyecto" },
+        secondarySeries: { id: "average", label: "Promedio del catálogo" },
+        categories: historicalReports.map(({ project, report }) => ({
+          id: project.id,
+          label: project.label,
+          primaryValue: report.metrics.totalAmount,
+          primaryLabel: formatCompactCurrency(report.metrics.totalAmount),
+          secondaryValue: historicalAverage,
+          secondaryLabel: formatCompactCurrency(historicalAverage),
+        })),
+      },
+      lines: portfolioLines,
+      narrative: {
+        summary: activeProjects.length === 0
+          ? `El catálogo contiene ${COST_PROJECTS.length} proyectos históricos. Aún no hay presupuestos guardados como proyectos activos.`
+          : `Hay ${activeProjects.length} proyecto${activeProjects.length === 1 ? " activo" : "s activos"} por ${formatCurrency(activeTotal)}, además de ${COST_PROJECTS.length} referentes históricos para contraste.`,
+        recommendations,
+        clarifications,
+        reviewPoints,
+        methodologyNote: "Lectura determinística construida con los datos cargados. Los totales históricos excluyen desgloses parciales y no se normalizan sin un área independiente.",
+      },
+      pdfMetrics: [
+        { label: "Proyectos de referencia", value: COST_PROJECTS.length, format: "number" },
+        { label: "Proyectos activos", value: activeProjects.length, format: "number" },
+        { label: "Total proyectos activos", value: activeTotal, format: "cop" },
+        { label: "Escala histórica consolidada", value: historicalTotal, format: "cop" },
+      ],
+      pdfLines: [
+        ...activeProjects.map(({ draft, report }) => ({
+          concept: draft.name,
+          referenceProject: report.referenceProjects.join(", ") || projectDisplayName(draft.baseProjectId),
+          unit: "líneas",
+          quantity: report.metrics.pricedLineCount,
+          unitRate: report.metrics.costPerM2 ?? 0,
+          total: report.metrics.totalAmount,
+        })),
+        ...historicalReports.map(({ project, report }) => ({
+          concept: project.label,
+          referenceProject: project.label,
+          unit: "indicadores",
+          quantity: report.metrics.lineCount,
+          unitRate: 0,
+          total: report.metrics.totalAmount,
+        })),
+      ],
+      pdfSeries: [
+        {
+          title: "Escala histórica por proyecto",
+          format: "cop",
+          items: historicalReports.map(({ project, report }) => ({
+            label: project.label,
+            value: report.metrics.totalAmount,
+            color: "#2563eb",
+          })),
+        },
+        ...(activeProjects.length === 0 ? [] : [{
+          title: "Presupuestos de proyectos activos",
+          format: "cop" as const,
+          items: activeProjects.map(({ draft, report }) => ({
+            label: draft.name,
+            value: report.metrics.totalAmount,
+            color: "#10b981",
+          })),
+        }]),
+      ],
+    };
+  }
+
   function renderOverview() {
-    const baseScenario = scenarios[0] ?? selectedScenario;
-    const baseEstimate: EstimateResult = estimates.get(baseScenario.id) ?? currentEstimate;
-    const alternateScenario = scenarios[1] ?? selectedScenario;
-    const alternateEstimate: EstimateResult = estimates.get(alternateScenario.id) ?? currentEstimate;
-    const delta = alternateEstimate.baseBudget - baseEstimate.baseBudget;
-    const deltaPercent = percentageDifference(alternateEstimate.baseBudget, baseEstimate.baseBudget);
-    const maxBudget = Math.max(baseEstimate.baseBudget, alternateEstimate.baseBudget);
+    const selectedBudget = activeSavedBudgetId
+      ? savedBudgetDrafts.find((draft) => draft.id === activeSavedBudgetId)
+      : undefined;
+    const model = selectedBudget !== undefined
+      ? buildBudgetOverview(selectedBudget)
+      : isCostProjectId(activeProjectKey)
+        ? buildHistoricalOverview(activeProjectKey)
+        : buildPortfolioOverview();
+    const generatedAt = analysisGeneratedAt[activeProjectKey];
+    const analysis: ExecutiveUiAnalysis = generatedAt === undefined
+      ? { status: "idle", recommendations: [], clarifications: [], reviewPoints: [] }
+      : {
+          status: "ready",
+          summary: model.narrative.summary,
+          recommendations: model.narrative.recommendations,
+          clarifications: model.narrative.clarifications,
+          reviewPoints: model.narrative.reviewPoints,
+          methodologyNote: model.narrative.methodologyNote,
+          generatedAt: new Intl.DateTimeFormat("es-CO", {
+            dateStyle: "medium",
+            timeStyle: "short",
+            timeZone: "America/Bogota",
+          }).format(new Date(generatedAt)),
+        };
+
+    const analyzeProject = () => {
+      setAnalysisGeneratedAt((current) => ({
+        ...current,
+        [activeProjectKey]: new Date().toISOString(),
+      }));
+    };
+
+    const exportProject = async () => {
+      const reportDate = new Date().toISOString();
+      setExportingProjectKey(activeProjectKey);
+      try {
+        const { downloadExecutivePdf } = await import("./reports/executivePdf");
+        downloadExecutivePdf({
+          title: "Resumen ejecutivo",
+          projectName: model.projectName,
+          generatedAt: reportDate,
+          summary: model.narrative.summary,
+          metrics: model.pdfMetrics,
+          lines: model.pdfLines,
+          recommendations: model.narrative.recommendations,
+          clarifications: model.narrative.clarifications,
+          considerations: model.narrative.reviewPoints,
+          comparisonSeries: model.pdfSeries,
+        });
+        setAnalysisGeneratedAt((current) => ({
+          ...current,
+          [activeProjectKey]: current[activeProjectKey] ?? reportDate,
+        }));
+        setProjectNotice({
+          tone: "success",
+          message: `Se descargó el informe PDF de ${model.projectName}.`,
+        });
+      } catch {
+        setProjectNotice({
+          tone: "error",
+          message: "No fue posible generar el PDF. Intenta de nuevo desde este navegador.",
+        });
+      } finally {
+        setExportingProjectKey(null);
+      }
+    };
 
     return (
-      <>
-        <section className="hero-panel">
-          <div className="hero-copy">
-            <span className="eyebrow eyebrow-light"><Sparkles size={14} /> Evaluación preliminar · Base {workbook.metadata.baseYear}</span>
-            <h1>Decidir con números<br />{" "}que se pueden explicar.</h1>
-            <p>Compara mezclas VIS / No VIS y entiende qué capítulo mueve el presupuesto antes de avanzar a estudios de detalle.</p>
-            <div className="hero-actions">
-              <button className="button button-primary" onClick={createBudget}>Nuevo presupuesto <ArrowRight size={17} /></button>
-              <button className="button button-dark-ghost" onClick={() => setActiveView("references")}><BookOpenText size={17} /> Ver indicadores</button>
-            </div>
-          </div>
-          <div className="hero-insight">
-            <div className="insight-head"><span>Hallazgo del comparativo</span><Gauge size={19} /></div>
-            <strong>{formatCompactCurrency(Math.abs(delta))}</strong>
-            <p>{alternateScenario.name} reduce el presupuesto base en <b>{formatPercent(Math.abs(deltaPercent))}</b> frente a {baseScenario.name}.</p>
-            <div className="insight-disclaimer"><Info size={15} /> No determina rentabilidad ni viabilidad normativa.</div>
-          </div>
-        </section>
-
-        <section className="section-heading">
-          <div><span className="eyebrow">Lectura rápida</span><h2>{selectedScenario.name}</h2></div>
-          <div className="scenario-switcher">
-            {scenarios.slice(0, 4).map((scenario) => (
-              <button key={scenario.id} className={selectedScenario.id === scenario.id ? "is-active" : ""} onClick={() => setSelectedScenarioId(scenario.id)}>{scenario.name}</button>
-            ))}
-          </div>
-        </section>
-
-        <section className="metric-grid">
-          <MetricCard label="Presupuesto base" value={formatCompactCurrency(currentEstimate.baseBudget)} icon={<CircleDollarSign size={19} />} note={<><StatusDot status="good" /> Incluye A&G; excluye urbanismo externo</>} />
-          <MetricCard label="Costo / m² construido" value={formatCurrency(currentEstimate.indicators.costPerConstructedM2 ?? 0)} icon={<BarChart3 size={19} />} tone="ink" note={`${formatNumber(selectedScenario.areas.constructedTotal, "m²")} de base`} />
-          <MetricCard label="Unidades de vivienda" value={formatNumber(selectedScenario.housingUnits.vis + selectedScenario.housingUnits.nonVis)} icon={<Building2 size={19} />} tone="green" note={`${selectedScenario.housingUnits.vis} VIS · ${selectedScenario.housingUnits.nonVis} No VIS`} />
-          <MetricCard label="Estado de revisión" value={severityLabel(currentEstimate.warnings)} icon={<ShieldCheck size={19} />} tone="amber" note="Estimación pendiente de validación técnica" />
-        </section>
-
-        <section className="overview-grid">
-          <article className="card comparison-card">
-            <div className="card-heading"><div><span className="eyebrow">Sensibilidades del Excel</span><h3>Presupuesto por alternativa</h3></div><span className="soft-badge">Misma área total</span></div>
-            <div className="budget-bars">
-              {[{ scenario: baseScenario, estimate: baseEstimate, tone: "base" }, { scenario: alternateScenario, estimate: alternateEstimate, tone: "alternate" }].map(({ scenario, estimate, tone }) => (
-                <div className="budget-row" key={scenario.id}>
-                  <div className="budget-row-label"><span>{scenario.name}</span><strong>{formatCompactCurrency(estimate.baseBudget)}</strong></div>
-                  <div className="budget-track"><span className={`budget-fill ${tone}`} style={{ width: `${(estimate.baseBudget / maxBudget) * 100}%` }} /></div>
-                  <small>{scenario.housingUnits.vis} VIS · {scenario.housingUnits.nonVis} No VIS</small>
-                </div>
-              ))}
-            </div>
-            <div className="comparison-result">
-              <span className="result-icon"><ArrowDownRight size={20} /></span>
-              <div><span>Diferencia de {alternateScenario.name}</span><strong>{formatSignedCurrency(delta)} <small>{formatPercent(deltaPercent)}</small></strong></div>
-              <button onClick={() => setActiveView("scenarios")}>Ver detalle <ArrowRight size={15} /></button>
-            </div>
-          </article>
-
-          <article className="card decision-card">
-            <div className="card-heading"><div><span className="eyebrow">Criterio gerencial</span><h3>Revisar supuestos</h3></div><span className="traffic-light warning"><span /></span></div>
-            <p className="decision-copy">La alternativa de menor costo merece estudio, pero aún no incorpora ingresos, lote ni validación normativa.</p>
-            <ul className="decision-list">
-              <li><CheckCircle2 size={17} /><span><b>Costos conciliados</b> con los dos escenarios fuente.</span></li>
-              <li><AlertTriangle size={17} /><span><b>Parqueaderos:</b> referente de 5 pisos sin sótano.</span></li>
-              <li><Info size={17} /><span><b>Urbanismo externo:</b> visible y separado del total base.</span></li>
-            </ul>
-            <div className="decision-footer"><span>Próximo control</span><strong>Validación Diseño + Presupuestos</strong></div>
-          </article>
-        </section>
-
-        <article className="card chapter-comparison">
-          <div className="card-heading"><div><span className="eyebrow">Qué explica la diferencia</span><h3>Comparación por capítulo</h3></div><span className="legend"><i className="legend-base" /> {baseScenario.name}<i className="legend-alt" /> {alternateScenario.name}</span></div>
-          <div className="table-scroll">
-            <table className="data-table">
-              <thead><tr><th>Capítulo</th><th>{baseScenario.name}</th><th>{alternateScenario.name}</th><th>Variación</th><th>Lectura</th></tr></thead>
-              <tbody>
-                {baseEstimate.lineItems.map((line) => {
-                  const altLine = alternateEstimate.lineItems.find((item) => item.chapter === line.chapter)!;
-                  const lineDelta = altLine.amount - line.amount;
-                  return (
-                    <tr key={line.chapter}>
-                      <td><span className={`chapter-dot chapter-${line.chapter}`} /> <strong>{line.label}</strong></td>
-                      <td>{formatCompactCurrency(line.amount)}</td>
-                      <td>{formatCompactCurrency(altLine.amount)}</td>
-                      <td><span className={`delta-pill ${lineDelta <= 0 ? "is-down" : "is-up"}`}>{lineDelta <= 0 ? <ArrowDownRight size={14} /> : <ArrowUpRight size={14} />}{formatSignedCurrency(lineDelta)}</span></td>
-                      <td className="muted-cell">{formatSignedNumber(altLine.quantity - line.quantity)} m²</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </>
+      <ExecutiveSummary
+        title={model.title}
+        subtitle={model.subtitle}
+        statusLabel={model.statusLabel}
+        metrics={model.metrics}
+        comparison={model.comparison}
+        lines={model.lines}
+        analysis={analysis}
+        onAnalyzeWithAi={analyzeProject}
+        onExportPdf={exportProject}
+        onEditProject={model.editableBudgetId === undefined
+          ? undefined
+          : () => editSavedBudget(model.editableBudgetId!)}
+        onDeleteProject={model.editableBudgetId === undefined
+          ? undefined
+          : () => deleteBudget(model.editableBudgetId!)}
+        isExporting={exportingProjectKey === activeProjectKey}
+      />
     );
   }
 
@@ -865,6 +1491,9 @@ function App() {
           onUpdateLine={updateBudgetLine}
           onRemoveLine={removeBudgetLine}
           onImportAreas={requestBudgetAreaImport}
+          onSaveDraft={saveBudgetAsActiveProject}
+          onUpdateArea={updateBudgetArea}
+          onDeleteDraft={deleteBudget}
           isImporting={budgetUploadState.status === "loading"}
         />
 
@@ -1003,9 +1632,9 @@ function App() {
 
   function renderReferences() {
     const query = referenceSearch.trim().toLocaleLowerCase("es");
-    const selectedProjects = activeCostProjectId === "all"
+    const selectedProjects = activeHistoricalProjectId === "all"
       ? costProjectCatalog
-      : costProjectCatalog.filter((project) => project.id === activeCostProjectId);
+      : costProjectCatalog.filter((project) => project.id === activeHistoricalProjectId);
     const projectCards = selectedProjects
       .map((project) => ({
         ...project,
@@ -1043,8 +1672,8 @@ function App() {
         </section>
         <section className="project-catalog" aria-label="Proyectos de indicadores">
           <div className="catalog-filter project-filter" role="group" aria-label="Seleccionar proyecto de indicadores">
-            <button className={activeCostProjectId === "all" ? "is-active" : ""} onClick={() => setActiveCostProjectId("all")}>Todos<span>{workbook.costIndicators.length}</span></button>
-            {costProjectCatalog.map((project) => <button key={project.id} className={activeCostProjectId === project.id ? "is-active" : ""} onClick={() => setActiveCostProjectId(project.id)}>{project.label}<span>{project.indicators.length}</span></button>)}
+            <button className={activeHistoricalProjectId === "all" ? "is-active" : ""} onClick={() => setActiveProjectKey("all")}>Todos<span>{workbook.costIndicators.length}</span></button>
+            {costProjectCatalog.map((project) => <button key={project.id} className={activeHistoricalProjectId === project.id ? "is-active" : ""} onClick={() => setActiveProjectKey(project.id)}>{project.label}<span>{project.indicators.length}</span></button>)}
           </div>
           <div className="reference-toolbar card"><div className="search-box"><Search size={17} /><input value={referenceSearch} onChange={(event) => setReferenceSearch(event.target.value)} placeholder="Buscar capítulo, cuadro, proyecto o celda…" />{referenceSearch ? <button onClick={() => setReferenceSearch("")} aria-label="Limpiar búsqueda"><X size={15} /></button> : null}</div><span className="soft-badge">{visibleIndicators.length} resultados</span></div>
           <div className="project-catalog-results">

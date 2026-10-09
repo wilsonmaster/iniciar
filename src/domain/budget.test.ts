@@ -3,6 +3,7 @@ import type { CostIndicator } from "./types";
 import {
   calculateBudget,
   createBudgetDraftFromProject,
+  snapshotBudgetIndicator,
   type BudgetDraft,
 } from "./budget";
 
@@ -76,12 +77,14 @@ describe("createBudgetDraftFromProject", () => {
         {
           id: "presupuesto-1:indicator:preliminares",
           indicatorId: "preliminares",
+          indicatorSnapshot: snapshotBudgetIndicator(catalog[0]),
           quantity: 0,
           adjustmentPerUnit: 0,
         },
         {
           id: "presupuesto-1:indicator:torre",
           indicatorId: "torre",
+          indicatorSnapshot: snapshotBudgetIndicator(catalog[1]),
           quantity: 0,
           adjustmentPerUnit: 0,
         },
@@ -199,6 +202,40 @@ describe("calculateBudget", () => {
     ]);
     expect(result.total).toBe(0);
     expect(result.status).toBe("needs-review");
+  });
+
+  it("conserva la tarifa seleccionada mediante el snapshot aunque cambie o falte el catálogo", () => {
+    const selected = indicator("indicador-importado", {
+      project: "Arbore",
+      finalRate: 2_345_678,
+    });
+    const draft: BudgetDraft = {
+      id: "p-importado",
+      name: "Presupuesto importado",
+      baseProjectId: "arbore",
+      lines: [
+        {
+          id: "linea-importada",
+          indicatorId: selected.id,
+          indicatorSnapshot: snapshotBudgetIndicator(selected),
+          quantity: 10,
+          adjustmentPerUnit: 100,
+        },
+      ],
+    };
+
+    const missingCatalog = calculateBudget(draft, []);
+    const changedCatalog = calculateBudget(draft, [
+      indicator("indicador-importado", { finalRate: 1 }),
+    ]);
+
+    expect(missingCatalog.lines[0]).toMatchObject({
+      baseRate: 2_345_678,
+      finalRate: 2_345_778,
+      amount: 23_457_780,
+      issues: [],
+    });
+    expect(changedCatalog.total).toBe(23_457_780);
   });
 
   it.each([Number.NaN, Number.POSITIVE_INFINITY, -1])(

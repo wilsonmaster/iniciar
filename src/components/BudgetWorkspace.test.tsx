@@ -45,6 +45,8 @@ function renderWorkspace(overrides: Partial<BudgetWorkspaceProps> = {}) {
     onUpdateLine: vi.fn(),
     onRemoveLine: vi.fn(),
     onImportAreas: vi.fn(),
+    onSaveDraft: vi.fn(),
+    onUpdateArea: vi.fn(),
     ...overrides,
   };
 
@@ -89,6 +91,35 @@ describe("BudgetWorkspace", () => {
     expect(onUpdateLine).toHaveBeenCalledWith("budget-1", "line-1", {
       quantity: 25,
     });
+  });
+
+  it("permite registrar el área total y guardar el presupuesto como proyecto activo", () => {
+    const onUpdateArea = vi.fn();
+    const onSaveDraft = vi.fn();
+    renderWorkspace({ onUpdateArea, onSaveDraft });
+
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Área total construida" }), {
+      target: { value: "12500.5" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Guardar como proyecto activo" }),
+    );
+
+    expect(onUpdateArea).toHaveBeenCalledWith("budget-1", 12500.5);
+    expect(onSaveDraft).toHaveBeenCalledWith("budget-1");
+  });
+
+  it("delega la eliminación del presupuesto cuando la acción está habilitada", () => {
+    const onDeleteDraft = vi.fn();
+    renderWorkspace({ onDeleteDraft });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Eliminar presupuesto Presupuesto de prueba",
+      }),
+    );
+
+    expect(onDeleteDraft).toHaveBeenCalledWith("budget-1");
   });
 
   it("ofrece crear el primer presupuesto cuando no hay pestañas", () => {

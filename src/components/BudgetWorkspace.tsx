@@ -4,10 +4,16 @@ import {
   Copy,
   FileSpreadsheet,
   Plus,
+  Save,
   Trash2,
   X,
 } from "lucide-react";
-import { calculateBudget, type BudgetDraft, type BudgetLine } from "../domain/budget";
+import {
+  calculateBudget,
+  type BudgetDraft,
+  type BudgetIndicatorReference,
+  type BudgetLine,
+} from "../domain/budget";
 import {
   filterCostIndicatorsByProject,
   projectDisplayName,
@@ -39,6 +45,8 @@ export interface BudgetWorkspaceProps {
   ) => void;
   onRemoveLine: (draftId: string, lineId: string) => void;
   onImportAreas: (draftId: string) => void;
+  onSaveDraft: (draftId: string) => void;
+  onUpdateArea: (draftId: string, areaM2: number) => void;
   onDeleteDraft?: (draftId: string) => void;
   isImporting?: boolean;
 }
@@ -112,6 +120,8 @@ export function BudgetWorkspace({
   onUpdateLine,
   onRemoveLine,
   onImportAreas,
+  onSaveDraft,
+  onUpdateArea,
   onDeleteDraft,
   isImporting = false,
 }: BudgetWorkspaceProps) {
@@ -170,13 +180,32 @@ export function BudgetWorkspace({
             <h2 id="budget-workspace-heading" className="sr-only">
               Editor del presupuesto {activeDraft.name}
             </h2>
-            <label htmlFor={`budget-name-${activeDraft.id}`}>Nombre del presupuesto</label>
-            <input
-              id={`budget-name-${activeDraft.id}`}
-              type="text"
-              value={activeDraft.name}
-              onChange={(event) => onRenameDraft(activeDraft.id, event.target.value)}
-            />
+            <div className="budget-project-fields">
+              <label>
+                <span>Nombre del presupuesto</span>
+                <input
+                  id={`budget-name-${activeDraft.id}`}
+                  aria-label="Nombre del presupuesto"
+                  type="text"
+                  value={activeDraft.name}
+                  onChange={(event) => onRenameDraft(activeDraft.id, event.target.value)}
+                />
+              </label>
+              <label>
+                <span>Área total construida</span>
+                <div className="budget-area-input">
+                  <input
+                    aria-label="Área total construida"
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={activeDraft.areaM2 ?? 0}
+                    onChange={(event) => onUpdateArea(activeDraft.id, toFiniteNumber(event.target.value))}
+                  />
+                  <small>m²</small>
+                </div>
+              </label>
+            </div>
             <p>
               Proyecto inicial: <strong>{baseProjectName}</strong>. Puedes mezclar referentes
               de los siete proyectos.
@@ -184,6 +213,14 @@ export function BudgetWorkspace({
           </div>
 
           <div className="budget-header-actions">
+            <button
+              type="button"
+              className="button button-primary"
+              onClick={() => onSaveDraft(activeDraft.id)}
+            >
+              <Save size={17} aria-hidden="true" />
+              {activeDraft.status === "active" ? "Guardar cambios y ver resumen" : "Guardar como proyecto activo"}
+            </button>
             <button
               type="button"
               className="button button-secondary"
@@ -247,14 +284,20 @@ export function BudgetWorkspace({
             </thead>
             <tbody>
               {activeDraft.lines.map((line, index) => {
-                const indicator = indicatorById.get(line.indicatorId);
                 const calculatedLine = calculatedLines.get(line.id);
+                const indicator = calculatedLine?.indicator ?? indicatorById.get(line.indicatorId);
                 const lineProjectId = indicator
                   ? resolveCostProjectId(indicator.project)
                   : undefined;
-                const availableIndicators = lineProjectId
+                const availableIndicators: BudgetIndicatorReference[] = lineProjectId
                   ? filterCostIndicatorsByProject(catalog, lineProjectId)
                   : [];
+                if (
+                  indicator !== undefined &&
+                  !availableIndicators.some((option) => option.id === indicator.id)
+                ) {
+                  availableIndicators.unshift(indicator);
+                }
                 const usageWarning = indicator ? USAGE_WARNINGS[indicator.usage] : undefined;
 
                 return (
@@ -356,7 +399,10 @@ export function BudgetWorkspace({
                           : formatCurrency(calculatedLine.finalRate)}
                       </strong>
                       {indicator === undefined ? null : (
-                        <small>Base {formatCurrency(calculatedLine?.baseRate ?? 0)}</small>
+                        <small>
+                          {line.indicatorSnapshot === undefined ? "Base del catálogo" : "Base guardada"}{" "}
+                          {formatCurrency(calculatedLine?.baseRate ?? 0)}
+                        </small>
                       )}
                     </td>
                     <td data-label="Total" className="budget-money-cell budget-line-total">

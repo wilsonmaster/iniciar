@@ -1,10 +1,46 @@
 import type { CostIndicator } from "./types";
 import { resolveCostProjectId } from "./catalogProjects";
 
+/**
+ * Minimal immutable copy of the selected catalogue row.
+ *
+ * Budgets keep this snapshot so an imported tariff remains reproducible after
+ * the browser is reopened or a different catalogue is loaded.
+ */
+export interface BudgetIndicatorSnapshot {
+  id: string;
+  groupLabel: string;
+  project: string;
+  baseYear: number;
+  concept: string;
+  originalUnit: string;
+  finalRate: number;
+  usage: CostIndicator["usage"];
+}
+
+export type BudgetIndicatorReference = CostIndicator | BudgetIndicatorSnapshot;
+
+export function snapshotBudgetIndicator(
+  indicator: CostIndicator,
+): BudgetIndicatorSnapshot {
+  return {
+    id: indicator.id,
+    groupLabel: indicator.groupLabel,
+    project: indicator.project,
+    baseYear: indicator.baseYear,
+    concept: indicator.concept,
+    originalUnit: indicator.originalUnit,
+    finalRate: indicator.finalRate,
+    usage: indicator.usage,
+  };
+}
+
 /** One editable row in a new budget. */
 export interface BudgetLine {
   id: string;
   indicatorId: string;
+  /** Frozen tariff and labels used when this line was selected. */
+  indicatorSnapshot?: BudgetIndicatorSnapshot;
   quantity: number;
   /** Additional COP per unit applied on top of the catalogue final rate. */
   adjustmentPerUnit: number;
@@ -19,6 +55,14 @@ export interface BudgetDraft {
   name: string;
   baseProjectId: string;
   lines: BudgetLine[];
+  /** Lifecycle in the user's project workspace. Older drafts may omit it. */
+  status?: "draft" | "active";
+  /** ISO timestamp set when a draft is first promoted to an active project. */
+  savedAt?: string;
+  /** ISO timestamp of the latest user edit. */
+  updatedAt?: string;
+  /** Optional total project area used by summaries and per-m2 comparisons. */
+  areaM2?: number;
 }
 
 export type BudgetCalculationIssueCode =
@@ -40,7 +84,7 @@ export interface BudgetCalculationIssue {
 export interface CalculatedBudgetLine {
   id: string;
   indicatorId: string;
-  indicator: CostIndicator | null;
+  indicator: BudgetIndicatorReference | null;
   /** Always finite and non-negative. Invalid input is reported and becomes 0. */
   quantity: number;
   baseRate: number | null;
@@ -93,6 +137,7 @@ export function createBudgetDraftFromProject(
       .map((indicator) => ({
         id: `${seed.id}:indicator:${indicator.id}`,
         indicatorId: indicator.id,
+        indicatorSnapshot: snapshotBudgetIndicator(indicator),
         quantity: 0,
         adjustmentPerUnit: 0,
       })),
@@ -124,7 +169,12 @@ export function calculateBudget(
 
   const lines = draft.lines.map((line): CalculatedBudgetLine => {
     const lineIssues: BudgetCalculationIssue[] = [];
-    const indicator = indicatorById.get(line.indicatorId) ?? null;
+    const indicator =
+      (line.indicatorSnapshot?.id === line.indicatorId
+        ? line.indicatorSnapshot
+        : undefined) ??
+      indicatorById.get(line.indicatorId) ??
+      null;
 
     const quantityIsValid =
       Number.isFinite(line.quantity) && line.quantity >= 0;
