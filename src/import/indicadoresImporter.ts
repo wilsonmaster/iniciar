@@ -1,14 +1,18 @@
 import type {
   CellSource,
   ChapterKey,
+  CostIndicator,
+  CostIndicatorUsage,
   CostReference,
   DataQualityIssue,
+  ProjectType,
   RateAdjustment,
   ScenarioInput,
   WorkbookImportResult,
   WorkbookModel,
   WorkbookQuality,
 } from "../domain/types";
+import { buildCandidateReferences } from "../domain/referenceCandidates";
 import {
   ALLOWED_WORKSHEET_NAMES,
   getXlsxCell,
@@ -24,9 +28,117 @@ const MONEY_TOLERANCE = 0.01;
 const RATE_TOLERANCE = 0.000001;
 const AREA_TOLERANCE = 0.000001;
 
+interface CatalogBlockSpec {
+  groupId: string;
+  fallbackLabel: string;
+  project: string;
+  projectType: ProjectType;
+  headingRow: number;
+  dataRows: readonly number[];
+  floorCount?: number;
+  partial?: boolean;
+}
+
+const CATALOG_BLOCK_SPECS: readonly CatalogBlockSpec[] = [
+  {
+    groupId: "serraclara",
+    fallbackLabel: "Indicadores Serraclara 2026 · 11 pisos",
+    project: "Serraclara",
+    projectType: "residential-tower",
+    headingRow: 2,
+    dataRows: [4, 5, 6, 7, 8, 9, 10],
+    floorCount: 11,
+  },
+  {
+    groupId: "serraclara-structure-finishes",
+    fallbackLabel: "Serraclara · estructura y acabados",
+    project: "Serraclara",
+    projectType: "residential-tower",
+    headingRow: 11,
+    dataRows: [13, 14],
+    floorCount: 11,
+    partial: true,
+  },
+  {
+    groupId: "arbore",
+    fallbackLabel: "Indicadores Arbore 2026 · 12 pisos",
+    project: "Arbore",
+    projectType: "residential-tower",
+    headingRow: 16,
+    dataRows: [18, 19, 20, 21],
+    floorCount: 12,
+  },
+  {
+    groupId: "arbore-structure-finishes",
+    fallbackLabel: "Arbore · estructura y acabados",
+    project: "Arbore",
+    projectType: "residential-tower",
+    headingRow: 22,
+    dataRows: [24, 25],
+    floorCount: 12,
+    partial: true,
+  },
+  {
+    groupId: "rocca",
+    fallbackLabel: "Indicadores Rocca 2026 · 22 pisos",
+    project: "Rocca",
+    projectType: "residential-tower",
+    headingRow: 27,
+    dataRows: [29, 30, 31, 32, 33, 34, 35],
+    floorCount: 22,
+  },
+  {
+    groupId: "rocca-structure-finishes",
+    fallbackLabel: "Rocca · estructura y acabados",
+    project: "Rocca",
+    projectType: "residential-tower",
+    headingRow: 36,
+    dataRows: [38, 39],
+    floorCount: 22,
+    partial: true,
+  },
+  {
+    groupId: "offices-rocca",
+    fallbackLabel: "Indicadores Oficinas Rocca 2026 · 10 pisos",
+    project: "Oficinas Rocca",
+    projectType: "office",
+    headingRow: 41,
+    dataRows: [43, 44, 45, 46, 47],
+    floorCount: 10,
+  },
+  {
+    groupId: "external-houses",
+    fallbackLabel: "Indicadores Externo Casas 2026 · 2 pisos",
+    project: "Externo Casas",
+    projectType: "houses",
+    headingRow: 49,
+    dataRows: [51, 52, 53, 54, 55],
+    floorCount: 2,
+  },
+  {
+    groupId: "offices-t6",
+    fallbackLabel: "Indicadores Oficinas T6 2026 · 16 pisos",
+    project: "Oficinas T6",
+    projectType: "office",
+    headingRow: 57,
+    dataRows: [59, 60, 61, 62, 63],
+    floorCount: 16,
+  },
+  {
+    groupId: "pinar-vis",
+    fallbackLabel: "Indicadores Pinar VIS 2026 · 13 pisos",
+    project: "Pinar VIS",
+    projectType: "residential-tower",
+    headingRow: 65,
+    dataRows: [67, 68, 69, 70, 71, 72],
+    floorCount: 13,
+  },
+] as const;
+
 interface ReferenceSpec {
   chapter: ChapterKey;
   id: string;
+  catalogIndicatorId: string;
   rateCell: string;
   unitCell: string;
   labelCell: string;
@@ -40,6 +152,7 @@ const REFERENCE_SPECS: readonly ReferenceSpec[] = [
   {
     chapter: "vis-towers",
     id: "pinar-vis-towers-2026",
+    catalogIndicatorId: "catalog-pinar-vis-r70",
     rateCell: "H70",
     unitCell: "C70",
     labelCell: "B70",
@@ -51,6 +164,7 @@ const REFERENCE_SPECS: readonly ReferenceSpec[] = [
   {
     chapter: "non-vis-towers",
     id: "arbore-towers-2026",
+    catalogIndicatorId: "catalog-arbore-r19",
     rateCell: "F19",
     unitCell: "C19",
     labelCell: "B19",
@@ -66,6 +180,7 @@ const REFERENCE_SPECS: readonly ReferenceSpec[] = [
   {
     chapter: "parking-building",
     id: "pinar-parking-building-2026",
+    catalogIndicatorId: "catalog-pinar-vis-r68",
     rateCell: "H68",
     unitCell: "C68",
     labelCell: "B68",
@@ -82,6 +197,7 @@ const REFERENCE_SPECS: readonly ReferenceSpec[] = [
   {
     chapter: "common-areas",
     id: "pinar-common-areas-2026",
+    catalogIndicatorId: "catalog-pinar-vis-r69",
     rateCell: "F69",
     unitCell: "C69",
     labelCell: "B69",
@@ -93,6 +209,7 @@ const REFERENCE_SPECS: readonly ReferenceSpec[] = [
   {
     chapter: "internal-urbanism",
     id: "pinar-internal-urbanism-2026",
+    catalogIndicatorId: "catalog-pinar-vis-r71",
     rateCell: "H71",
     unitCell: "C71",
     labelCell: "B71",
@@ -104,6 +221,7 @@ const REFERENCE_SPECS: readonly ReferenceSpec[] = [
   {
     chapter: "preliminaries",
     id: "pinar-preliminaries-2026",
+    catalogIndicatorId: "catalog-pinar-vis-r67",
     rateCell: "H67",
     unitCell: "C67",
     labelCell: "B67",
@@ -379,6 +497,213 @@ function parseScenarioUnits(
   return { vis, nonVis };
 }
 
+function normalizeCatalogText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function catalogueClassification(
+  concept: string,
+  block: CatalogBlockSpec,
+): { usage: CostIndicatorUsage; compatibleChapters: readonly ChapterKey[] } {
+  const normalized = normalizeCatalogText(concept);
+  const towerChapters = ["vis-towers", "non-vis-towers"] as const;
+
+  if (block.partial) {
+    return { usage: "partial", compatibleChapters: towerChapters };
+  }
+  if (normalized.includes("ADMON") || normalized.includes("ADMINISTRACION")) {
+    return { usage: "administration", compatibleChapters: [] };
+  }
+  if (normalized.includes("PRELIMINAR")) {
+    return { usage: "selectable", compatibleChapters: ["preliminaries"] };
+  }
+  if (normalized.includes("URBANISMO")) {
+    return { usage: "selectable", compatibleChapters: ["internal-urbanism"] };
+  }
+  if (
+    normalized.includes("ZONA") ||
+    normalized.includes("AMENIDAD") ||
+    normalized.includes("CLUB HOUSE")
+  ) {
+    return { usage: "selectable", compatibleChapters: ["common-areas"] };
+  }
+  if (
+    normalized.includes("TORRE") ||
+    normalized.includes("OFICINA") ||
+    /^CASAS\b/.test(normalized)
+  ) {
+    if (block.groupId === "pinar-vis" && normalized.includes("VIS")) {
+      return { usage: "selectable", compatibleChapters: ["vis-towers"] };
+    }
+    return { usage: "selectable", compatibleChapters: towerChapters };
+  }
+  if (normalized.includes("PARQUEADERO") || normalized.includes("SOTANO")) {
+    return { usage: "selectable", compatibleChapters: ["parking-building"] };
+  }
+
+  return { usage: "unmapped", compatibleChapters: [] };
+}
+
+function assetClassFor(projectType: ProjectType): CostReference["context"]["assetClass"] {
+  if (projectType === "office") return "office";
+  if (projectType === "houses") return "houses";
+  return "residential";
+}
+
+function basementLevelsFor(concept: string): number | undefined {
+  const normalized = normalizeCatalogText(concept);
+  if (normalized.includes("SIN SOTANO")) return 0;
+  if (normalized.includes("3 NIVELES") && normalized.includes("SOTANO")) return 3;
+  if (normalized.includes("SOTANO + SEMISOTANO") || normalized.includes("SOT + SEM")) return 2;
+  if (normalized.includes("SOTANO") || normalized.includes("SOT ")) return 1;
+  return undefined;
+}
+
+function buildCostIndicators(
+  workbook: ParsedXlsxWorkbook,
+  fileName: string,
+  fallbackBaseYear: number,
+): CostIndicator[] {
+  const indicators: CostIndicator[] = [];
+
+  for (const block of CATALOG_BLOCK_SPECS) {
+    const headingValue = getXlsxCell(
+      workbook,
+      "Indicadores costos",
+      `B${block.headingRow}`,
+    )?.value;
+    const groupLabel =
+      typeof headingValue === "string" && headingValue.trim()
+        ? headingValue.trim().replace(/\s+/g, " ")
+        : block.fallbackLabel;
+    const headingYear = groupLabel.match(/\b(20\d{2})\b/);
+    const baseYear = headingYear ? Number(headingYear[1]) : fallbackBaseYear;
+
+    for (const row of block.dataRows) {
+      const conceptValue = getXlsxCell(
+        workbook,
+        "Indicadores costos",
+        `B${row}`,
+      )?.value;
+      if (conceptValue === undefined || conceptValue === null || conceptValue === "") {
+        continue;
+      }
+      if (typeof conceptValue !== "string") {
+        failCell(
+          "invalid-catalog-concept",
+          `Se esperaba texto en Indicadores costos!B${row}.`,
+          "Indicadores costos",
+          `B${row}`,
+          "costIndicators.concept",
+        );
+      }
+
+      const concept = conceptValue.trim();
+      const originalUnit = requiredString(
+        workbook,
+        "Indicadores costos",
+        `C${row}`,
+        "costIndicators.originalUnit",
+      ).trim();
+      const historicalAmount = requiredNumber(
+        workbook,
+        "Indicadores costos",
+        `D${row}`,
+        "costIndicators.historicalAmount",
+      );
+      const basisQuantity = requiredNumber(
+        workbook,
+        "Indicadores costos",
+        `E${row}`,
+        "costIndicators.basisQuantity",
+      );
+      if (basisQuantity <= 0) {
+        failCell(
+          "invalid-catalog-quantity",
+          `La base de Indicadores costos!E${row} debe ser mayor que cero.`,
+          "Indicadores costos",
+          `E${row}`,
+          "costIndicators.basisQuantity",
+        );
+      }
+
+      const storedUnitRate = optionalNumber(
+        workbook,
+        "Indicadores costos",
+        `F${row}`,
+      );
+      const adjustmentPerUnit =
+        optionalNumber(workbook, "Indicadores costos", `G${row}`) ?? 0;
+      const storedFinalRate = optionalNumber(
+        workbook,
+        "Indicadores costos",
+        `H${row}`,
+      );
+      const unitRate = storedUnitRate ?? historicalAmount / basisQuantity;
+      const finalRate = storedFinalRate ?? unitRate + adjustmentPerUnit;
+      const rateCell = storedFinalRate === null ? `F${row}` : `H${row}`;
+      const classification = catalogueClassification(concept, block);
+      const assetClass = assetClassFor(block.projectType);
+      const context: CostReference["context"] = {
+        assetClass,
+        ...(block.projectType === "residential-tower"
+          ? { product: block.groupId === "pinar-vis" ? "VIS" : "mixed" }
+          : {}),
+        ...(block.floorCount === undefined ? {} : { floorCount: block.floorCount }),
+        ...(basementLevelsFor(concept) === undefined
+          ? {}
+          : { basementLevels: basementLevelsFor(concept) }),
+      };
+
+      indicators.push({
+        id: `catalog-${block.groupId}-r${row}`,
+        groupId: block.groupId,
+        groupLabel,
+        project: block.project,
+        projectType: block.projectType,
+        baseYear,
+        ...(block.floorCount === undefined ? {} : { floorCount: block.floorCount }),
+        concept,
+        originalUnit,
+        historicalAmount,
+        basisQuantity,
+        unitRate,
+        adjustmentPerUnit,
+        finalRate,
+        usage: classification.usage,
+        compatibleChapters: classification.compatibleChapters,
+        context,
+        source: sourceFor(
+          workbook,
+          fileName,
+          "Indicadores costos",
+          rateCell,
+          "Tipología y compatibilidad derivadas del título y concepto del Excel; requieren validación de Presupuestos.",
+        ),
+        amountSource: sourceFor(
+          workbook,
+          fileName,
+          "Indicadores costos",
+          `D${row}`,
+        ),
+        quantitySource: sourceFor(
+          workbook,
+          fileName,
+          "Indicadores costos",
+          `E${row}`,
+        ),
+      });
+    }
+  }
+
+  return indicators;
+}
+
 function buildReferences(
   workbook: ParsedXlsxWorkbook,
   fileName: string,
@@ -453,6 +778,7 @@ function buildReferences(
     return {
       id: spec.id,
       chapter: spec.chapter,
+      catalogIndicatorId: spec.catalogIndicatorId,
       label: requiredString(
         workbook,
         "Indicadores costos",
@@ -1056,13 +1382,22 @@ export function importIndicadores(
   try {
     const parsed = parseXlsxWorkbook(buffer);
     const baseYear = workbookYear(parsed);
-    const references = buildReferences(
+    const preferredReferences = buildReferences(
       parsed,
       sourceFileName,
       baseYear,
       issues,
     );
-    const referencesByChapter = referenceMap(references);
+    const costIndicators = buildCostIndicators(
+      parsed,
+      sourceFileName,
+      baseYear,
+    );
+    const references = buildCandidateReferences(
+      costIndicators,
+      preferredReferences,
+    );
+    const referencesByChapter = referenceMap(preferredReferences);
     const scenarios = SCENARIO_SPECS.map((spec) =>
       buildScenario(
         parsed,
@@ -1117,6 +1452,7 @@ export function importIndicadores(
         currency: "COP",
         sheetNames: ALLOWED_WORKSHEET_NAMES,
       },
+      costIndicators,
       references,
       scenarios,
       config: {

@@ -5,11 +5,14 @@ MVP web para convertir indicadores históricos de costos en escenarios de cabida
 ## Qué incluye
 
 - Importación local de las hojas exactas `Indicadores costos`, `Ppto ` y `Presentacion`.
+- Catálogo completo de **45 indicadores**, agrupado y filtrable por vivienda en torre, oficinas y casas.
 - Lectura de fórmulas y valores cacheados sin modificar el archivo original.
 - Motor determinista por capítulos: Torres VIS, Torres No VIS, parqueaderos, zonas comunes, urbanismo interno y preliminares.
 - Administración y gastos generales configurable.
 - Urbanismo externo separado, con inclusión explícita y sin doble conteo.
-- Escenarios 2 y 3 precargados, edición de cantidades, duplicación y comparación.
+- Escenarios 2 y 3 precargados, captura manual de áreas, creación de escenarios, duplicación y comparación.
+- Selección inicial explicable de un referente por capítulo y posibilidad de cambiarlo para recalcular inmediatamente.
+- Separación entre indicadores completos seleccionables, desgloses parciales, administración mensual y conceptos pendientes de homologación.
 - Trazabilidad por proyecto, hoja y celda de origen.
 - Alertas de consistencia, contexto técnico y conciliación contra el Excel.
 - Exportación CSV del detalle calculado.
@@ -24,6 +27,13 @@ npm run dev
 ```
 
 La aplicación queda disponible en la dirección que indique Vite, normalmente `http://localhost:5173`.
+
+## Flujo de uso
+
+1. En **Indicadores**, consulta las 45 filas de la biblioteca por tipo de proyecto y proyecto referente.
+2. En **Escenarios**, crea un escenario manual o edita uno importado y diligencia sus áreas.
+3. Revisa el referente sugerido en cada capítulo. El selector permite sustituirlo y recalcula tarifa, trazabilidad y total.
+4. En **Importar Excel**, carga el formato actual de `INDICADORES.xlsx`; `Ppto ` aporta las áreas por capítulo y `Presentacion` las viviendas, áreas vendibles y urbanismo externo.
 
 ## Validación
 

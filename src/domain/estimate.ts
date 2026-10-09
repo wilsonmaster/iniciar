@@ -485,7 +485,10 @@ export function estimateScenario(
           reference.reviewStatus === "not-comparable" ? "error" : "warning",
         chapter,
         source: cloneSource(reference.source),
-        message: `El referente ${reference.id} tiene estado ${reference.reviewStatus}.`,
+        message:
+          reference.reviewStatus === "not-comparable"
+            ? `El referente ${reference.project} — ${reference.label} está marcado como no comparable.`
+            : `El referente ${reference.project} — ${reference.label} requiere revisión de Presupuestos.`,
       });
     }
 

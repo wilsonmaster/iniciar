@@ -216,7 +216,8 @@ describe("importIndicadores", () => {
         scenarioId: "scenario-2",
       }),
     );
-    expect(result.workbook?.references).toHaveLength(6);
+    expect(result.workbook?.references).toHaveLength(7);
+    expect(result.workbook?.costIndicators).toHaveLength(6);
     expect(result.workbook?.scenarios).toHaveLength(2);
 
     const scenario2 = result.workbook?.scenarios[0];

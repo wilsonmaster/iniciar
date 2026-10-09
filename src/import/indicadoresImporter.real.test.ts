@@ -21,7 +21,26 @@ describe.skipIf(!workbookPath)("INDICADORES.xlsx integration", () => {
     expect(result.quality.issues).not.toContainEqual(
       expect.objectContaining({ severity: "error" }),
     );
-    expect(result.workbook?.references).toHaveLength(6);
+    expect(result.workbook?.costIndicators).toHaveLength(45);
+    expect(result.workbook?.references.length).toBeGreaterThan(6);
+    expect(
+      new Set(result.workbook?.costIndicators.map((item) => item.project)).size,
+    ).toBe(7);
+    expect(
+      result.workbook?.costIndicators.filter(
+        (item) => item.usage === "administration",
+      ),
+    ).toHaveLength(6);
+    expect(
+      result.workbook?.costIndicators.find(
+        (item) => item.source.cell === "H70",
+      ),
+    ).toMatchObject({
+      project: "Pinar VIS",
+      concept: "TORRES VIS- 13 PISOS",
+      finalRate: 2_161_403.829541057,
+      compatibleChapters: ["vis-towers"],
+    });
     expect(result.workbook?.scenarios).toHaveLength(2);
 
     const [scenario2, scenario3] = result.workbook.scenarios;

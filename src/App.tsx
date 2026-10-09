@@ -31,11 +31,13 @@ import {
   UploadCloud,
   X,
 } from "lucide-react";
-import { type ChangeEvent, type ReactNode, useMemo, useRef, useState } from "react";
+import { Fragment, type ChangeEvent, type ReactNode, useMemo, useRef, useState } from "react";
 import { DEFAULT_WORKBOOK } from "./data/defaultWorkbook";
 import { estimateScenario } from "./domain/estimate";
+import { suggestReferenceIds } from "./domain/referenceCandidates";
 import type {
   ChapterKey,
+  CostIndicator,
   CostReference,
   EstimateConfig,
   EstimateLineItem,
@@ -43,6 +45,7 @@ import type {
   EstimateWarning,
   ScenarioAreas,
   ScenarioInput,
+  ProjectType,
   WorkbookModel,
 } from "./domain/types";
 import { downloadCsv } from "./utils/csv";
@@ -56,6 +59,7 @@ import {
 } from "./utils/format";
 
 type View = "overview" | "scenarios" | "references" | "import";
+type ProjectTypeFilter = "all" | ProjectType;
 type UploadState =
   | { status: "idle" }
   | { status: "loading"; fileName: string }
@@ -78,6 +82,26 @@ const AREA_FIELD_BY_CHAPTER: Record<ChapterKey, keyof ScenarioAreas> = {
   "common-areas": "commonBuilt",
   "internal-urbanism": "internalUrbanism",
   preliminaries: "constructedTotal",
+};
+
+const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
+  "residential-tower": "Vivienda en torre",
+  office: "Oficinas",
+  houses: "Casas",
+};
+
+const ASSET_CLASS_LABELS: Record<CostReference["context"]["assetClass"], string> = {
+  residential: "vivienda",
+  office: "oficinas",
+  houses: "casas",
+  mixed: "uso mixto",
+};
+
+const INDICATOR_USAGE_LABELS: Record<CostIndicator["usage"], string> = {
+  selectable: "Disponible como referente",
+  partial: "Indicador parcial",
+  administration: "Administración",
+  unmapped: "Requiere clasificación",
 };
 
 const NAV_ITEMS: Array<{
@@ -113,6 +137,12 @@ function severityLabel(warnings: readonly EstimateWarning[]): string {
   if (warnings.some((warning) => warning.severity === "error")) return "Requiere corrección";
   if (warnings.some((warning) => warning.severity === "warning")) return "Revisar supuestos";
   return "Datos conciliados";
+}
+
+function isReferenceAssetCompatible(reference: CostReference, scenario: ScenarioInput): boolean {
+  const referenceClass = reference.context.assetClass;
+  const scenarioClass = scenario.context.assetClass;
+  return referenceClass === scenarioClass || referenceClass === "mixed" || scenarioClass === "mixed";
 }
 
 function MetricCard({
@@ -162,7 +192,11 @@ function App() {
     ),
   );
   const [referenceSearch, setReferenceSearch] = useState("");
+  const [projectTypeFilter, setProjectTypeFilter] = useState<ProjectTypeFilter>("all");
   const [selectedChapter, setSelectedChapter] = useState<ChapterKey>("vis-towers");
+  const [manualReferenceSelections, setManualReferenceSelections] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [uploadState, setUploadState] = useState<UploadState>({ status: "idle" });
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -221,6 +255,21 @@ function App() {
     }));
   };
 
+  const updateReference = (chapter: ChapterKey, referenceId: string) => {
+    if (!selectedScenario) return;
+    updateScenario(selectedScenario.id, (scenario) => ({
+      ...scenario,
+      referenceIds: { ...scenario.referenceIds, [chapter]: referenceId },
+      reportedResults: undefined,
+    }));
+    setManualReferenceSelections((current) => {
+      const next = new Set(current);
+      next.add(`${selectedScenario.id}::${chapter}`);
+      return next;
+    });
+    setSelectedChapter(chapter);
+  };
+
   const updateConfig = (scenarioId: string, patch: Partial<EstimateConfig>) => {
     setScenarioConfigs((current) => ({
       ...current,
@@ -245,6 +294,40 @@ function App() {
     setActiveView("scenarios");
   };
 
+  const createManualScenario = () => {
+    if (!selectedScenario) return;
+    const id = `manual-${Date.now()}`;
+    const manualScenario: ScenarioInput = {
+      id,
+      name: `Escenario manual ${scenarios.filter((scenario) => scenario.id.startsWith("manual-")).length + 1}`,
+      description: "Escenario vacío para ingresar áreas y elegir referentes de costos.",
+      housingUnits: { vis: 0, nonVis: 0 },
+      parkingSpaces: 0,
+      areas: {
+        constructedTotal: 0,
+        visBuilt: 0,
+        nonVisBuilt: 0,
+        parkingBuilt: 0,
+        commonBuilt: 0,
+        internalUrbanism: 0,
+        sellableVis: 0,
+        sellableNonVis: 0,
+      },
+      referenceIds: suggestReferenceIds(workbook.references, selectedScenario.context),
+      adjustments: {},
+      externalUrbanism: { amount: 0, includedInBase: false },
+      context: { ...selectedScenario.context },
+      assumptions: [],
+    };
+    setScenarios((current) => [...current, manualScenario]);
+    setScenarioConfigs((current) => ({
+      ...current,
+      [id]: { ...configFor(selectedScenario.id) },
+    }));
+    setSelectedScenarioId(id);
+    setActiveView("scenarios");
+  };
+
   const resetWorkbook = () => {
     setWorkbook(DEFAULT_WORKBOOK);
     setScenarios(DEFAULT_WORKBOOK.scenarios.map(cloneScenario));
@@ -257,6 +340,7 @@ function App() {
     setComparisonScenarioId(
       DEFAULT_WORKBOOK.scenarios[1]?.id ?? DEFAULT_WORKBOOK.scenarios[0]?.id ?? "",
     );
+    setManualReferenceSelections(new Set());
     setUploadState({ status: "idle" });
   };
 
@@ -314,10 +398,11 @@ function App() {
       );
       setSelectedScenarioId(imported.scenarios[0]?.id ?? "");
       setComparisonScenarioId(imported.scenarios[1]?.id ?? imported.scenarios[0]?.id ?? "");
+      setManualReferenceSelections(new Set());
       setUploadState({
         status: "success",
         fileName: file.name,
-        message: `${imported.references.length} indicadores y ${imported.scenarios.length} escenarios importados.`,
+        message: `${imported.costIndicators.length} indicadores y ${imported.scenarios.length} escenarios importados.`,
       });
     } catch (error) {
       setUploadState({
@@ -528,7 +613,7 @@ function App() {
       <>
         <section className="page-heading">
           <div><span className="eyebrow">Simulador Fase 1</span><h1>Escenarios de cabida</h1><p>Edita cantidades y ajustes; el presupuesto se recalcula sin ocultar su origen.</p></div>
-          <div className="heading-actions"><button className="button button-ghost" onClick={duplicateScenario}><Copy size={16} /> Duplicar escenario</button><button className="button button-primary" onClick={exportSelectedScenario}><Download size={16} /> Exportar detalle</button></div>
+          <div className="heading-actions"><button className="button button-ghost" onClick={duplicateScenario}><Copy size={16} /> Duplicar escenario</button><button className="button button-ghost" onClick={createManualScenario}>+ Nuevo escenario manual</button><button className="button button-primary" onClick={exportSelectedScenario}><Download size={16} /> Exportar detalle</button></div>
         </section>
 
         <section className="scenario-tabs" aria-label="Escenarios disponibles">
@@ -536,11 +621,15 @@ function App() {
             const estimate = estimates.get(scenario.id)!;
             return <button key={scenario.id} className={selectedScenario.id === scenario.id ? "is-active" : ""} onClick={() => setSelectedScenarioId(scenario.id)}><span>{String.fromCharCode(65 + index)}</span><div><strong>{scenario.name}</strong><small>{formatCompactCurrency(estimate.baseBudget)}</small></div>{selectedScenario.id === scenario.id ? <Check size={15} /> : null}</button>;
           })}
-          <button className="add-scenario" onClick={duplicateScenario}>+ Nueva copia</button>
+          <button className="add-scenario" onClick={createManualScenario}>+ Nuevo manual</button>
         </section>
 
         <section className="scenario-layout">
           <div className="scenario-main">
+            <section className="area-mode-strip" aria-label="Forma de ingreso de áreas">
+              <div className="area-mode-active"><span><Check size={15} /></span><div><strong>Ingresar áreas manualmente</strong><small>Activo · edita los campos y capítulos de este escenario</small></div></div>
+              <button className="button button-ghost" onClick={() => setActiveView("import")}><FileSpreadsheet size={16} /> Cargar áreas desde Excel</button>
+            </section>
             <article className="card project-inputs">
               <div className="card-heading"><div><span className="eyebrow">Mezcla y denominadores</span><h3>Datos del escenario</h3></div><span className="soft-badge"><StatusDot status="warning" /> Hipótesis presupuestal</span></div>
               <div className="input-grid">
@@ -558,16 +647,38 @@ function App() {
                 <table className="editor-table">
                   <thead><tr><th>Capítulo / referente</th><th>Área</th><th>Tarifa base</th><th>Ajuste /m²</th><th>Valor</th><th /></tr></thead>
                   <tbody>
-                    {currentEstimate.lineItems.map((line) => (
-                      <tr key={line.chapter} className={selectedChapter === line.chapter ? "is-selected" : ""}>
-                        <td><button className="chapter-button" onClick={() => setSelectedChapter(line.chapter)}><span className={`chapter-icon chapter-${line.chapter}`}>{line.label.slice(0, 1)}</span><span><strong>{line.label}</strong><small>{line.referenceProject}</small></span></button></td>
-                        <td><InlineNumber value={line.quantity} onChange={(value) => updateArea(line.chapter, value)} suffix="m²" /></td>
-                        <td><span className="read-only-value">{formatCurrency(line.baseRate)}</span></td>
-                        <td><InlineNumber value={chapterAdjustmentPerUnit(line)} onChange={(value) => updateAdjustment(line.chapter, value)} currency /></td>
-                        <td><strong>{formatCompactCurrency(line.amount)}</strong></td>
-                        <td><button className="icon-button" onClick={() => setSelectedChapter(line.chapter)} aria-label={`Ver trazabilidad de ${line.label}`}><ArrowRight size={16} /></button></td>
-                      </tr>
-                    ))}
+                    {currentEstimate.lineItems.map((line) => {
+                      const chapterReferences = workbook.references.filter((reference) => reference.chapter === line.chapter);
+                      const compatibleReferences = chapterReferences.filter((reference) => isReferenceAssetCompatible(reference, selectedScenario));
+                      const otherReferences = chapterReferences.filter((reference) => !isReferenceAssetCompatible(reference, selectedScenario));
+                      const manuallySelected = manualReferenceSelections.has(`${selectedScenario.id}::${line.chapter}`);
+                      const selectedReference = chapterReferences.find((reference) => reference.id === selectedScenario.referenceIds[line.chapter]);
+                      const incompatibleSelection = selectedReference ? !isReferenceAssetCompatible(selectedReference, selectedScenario) : false;
+                      return (
+                        <tr key={line.chapter} className={selectedChapter === line.chapter ? "is-selected" : ""}>
+                          <td>
+                            <div className="chapter-reference-cell">
+                              <button className="chapter-button" onClick={() => setSelectedChapter(line.chapter)}><span className={`chapter-icon chapter-${line.chapter}`}>{CHAPTER_LABELS[line.chapter].slice(0, 1)}</span><span><strong>{CHAPTER_LABELS[line.chapter]}</strong><small>Referente actual: {line.referenceProject}</small></span></button>
+                              <label className="reference-picker">
+                                <span className="sr-only">Referente para {CHAPTER_LABELS[line.chapter]}</span>
+                                <select value={selectedScenario.referenceIds[line.chapter]} onChange={(event) => updateReference(line.chapter, event.target.value)} aria-label={`Referente de ${CHAPTER_LABELS[line.chapter]} para ${selectedScenario.name}`}>
+                                  <optgroup label={`Compatibles con ${ASSET_CLASS_LABELS[selectedScenario.context.assetClass]}`}>
+                                    {compatibleReferences.map((reference) => <option key={reference.id} value={reference.id}>{reference.project} — {reference.label} · {formatCurrency(reference.baseRate)}</option>)}
+                                  </optgroup>
+                                  {otherReferences.length ? <optgroup label="⚠ Otros tipos de proyecto · revisar">{otherReferences.map((reference) => <option key={reference.id} value={reference.id}>{reference.project} — {reference.label} · {formatCurrency(reference.baseRate)}</option>)}</optgroup> : null}
+                                </select>
+                                <small className={`selection-origin ${manuallySelected ? "is-manual" : ""} ${incompatibleSelection ? "is-warning" : ""}`}>{incompatibleSelection ? "Selección de otro tipo · revisar" : manuallySelected ? "Selección manual" : "Sugerido inicialmente"}</small>
+                              </label>
+                            </div>
+                          </td>
+                          <td><InlineNumber value={line.quantity} onChange={(value) => updateArea(line.chapter, value)} suffix="m²" /></td>
+                          <td><span className="read-only-value">{formatCurrency(line.baseRate)}</span></td>
+                          <td><InlineNumber value={chapterAdjustmentPerUnit(line)} onChange={(value) => updateAdjustment(line.chapter, value)} currency /></td>
+                          <td><strong>{formatCompactCurrency(line.amount)}</strong></td>
+                          <td><button className="icon-button" onClick={() => setSelectedChapter(line.chapter)} aria-label={`Ver trazabilidad de ${line.label}`}><ArrowRight size={16} /></button></td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr><td><strong>Administración + GG</strong><small>Sobre subtotal de seis capítulos</small></td><td colSpan={2}><InlineNumber value={config.administrationRate * 100} onChange={(value) => updateConfig(selectedScenario.id, { administrationRate: Math.max(0, value / 100) })} suffix="%" /></td><td>{formatCurrency(currentEstimate.directCostSubtotal)}</td><td><strong>{formatCompactCurrency(currentEstimate.administrationAndGeneral.amount)}</strong></td><td /></tr>
@@ -618,24 +729,57 @@ function App() {
 
   function renderReferences() {
     const query = referenceSearch.trim().toLocaleLowerCase("es");
-    const references = workbook.references.filter((reference) =>
-      [reference.label, reference.project, reference.scope, reference.chapter].some((value) => value.toLocaleLowerCase("es").includes(query)),
+    const indicators = workbook.costIndicators.filter((indicator) => {
+      const matchesType = projectTypeFilter === "all" || indicator.projectType === projectTypeFilter;
+      const matchesSearch = !query || [
+        indicator.concept,
+        indicator.project,
+        indicator.groupLabel,
+        indicator.originalUnit,
+        INDICATOR_USAGE_LABELS[indicator.usage],
+        indicator.source.sheet,
+        indicator.source.cell,
+      ].some((value) => value.toLocaleLowerCase("es").includes(query));
+      return matchesType && matchesSearch;
+    });
+    const groupedIndicators = Array.from(
+      indicators.reduce((groups, indicator) => {
+        const current = groups.get(indicator.groupId) ?? [];
+        current.push(indicator);
+        groups.set(indicator.groupId, current);
+        return groups;
+      }, new Map<string, CostIndicator[]>()),
     );
+    const projectCount = new Set(workbook.costIndicators.map((indicator) => indicator.project)).size;
+    const projectTypeCount = new Set(workbook.costIndicators.map((indicator) => indicator.projectType)).size;
+    const selectableCount = workbook.costIndicators.filter((indicator) => indicator.usage === "selectable").length;
+    const typeFilters: Array<{ id: ProjectTypeFilter; label: string }> = [
+      { id: "all", label: "Todos" },
+      { id: "residential-tower", label: "Vivienda en torre" },
+      { id: "office", label: "Oficinas" },
+      { id: "houses", label: "Casas" },
+    ];
 
     return (
       <>
-        <section className="page-heading"><div><span className="eyebrow">Biblioteca histórica</span><h1>Indicadores de costo</h1><p>Cada tarifa conserva proyecto, celda, alcance y estado de revisión.</p></div><button className="button button-primary" onClick={() => setActiveView("import")}><UploadCloud size={16} /> Actualizar desde Excel</button></section>
+        <section className="page-heading"><div><span className="eyebrow">Catálogo completo · hoja Indicadores costos</span><h1>Indicadores de costo</h1><p>Consulta todos los indicadores por tipo de proyecto y bloque, incluidos los que aún no se usan en un presupuesto.</p></div><button className="button button-primary" onClick={() => setActiveView("import")}><UploadCloud size={16} /> Actualizar desde Excel</button></section>
         <section className="reference-stats">
-          <div><span className="stat-icon blue"><Database size={19} /></span><p><strong>{workbook.references.length}</strong><small>referentes usados</small></p></div>
-          <div><span className="stat-icon green"><CheckCircle2 size={19} /></span><p><strong>{workbook.references.filter((item) => item.reviewStatus === "validated").length}</strong><small>validados</small></p></div>
-          <div><span className="stat-icon amber"><AlertTriangle size={19} /></span><p><strong>{workbook.quality.issues.length}</strong><small>alertas de importación</small></p></div>
-          <div><span className="stat-icon ink"><FileSpreadsheet size={19} /></span><p><strong>{workbook.metadata.sheetNames.length}</strong><small>hojas reconocidas</small></p></div>
+          <div><span className="stat-icon blue"><Database size={19} /></span><p><strong>{workbook.costIndicators.length}</strong><small>indicadores en catálogo</small></p></div>
+          <div><span className="stat-icon green"><Building2 size={19} /></span><p><strong>{projectCount}</strong><small>proyectos históricos</small></p></div>
+          <div><span className="stat-icon amber"><TableProperties size={19} /></span><p><strong>{projectTypeCount}</strong><small>tipos de proyecto</small></p></div>
+          <div><span className="stat-icon ink"><CheckCircle2 size={19} /></span><p><strong>{selectableCount}</strong><small>disponibles como referente</small></p></div>
         </section>
         <article className="card reference-table-card">
-          <div className="reference-toolbar"><div className="search-box"><Search size={17} /><input value={referenceSearch} onChange={(event) => setReferenceSearch(event.target.value)} placeholder="Buscar proyecto, capítulo o alcance…" />{referenceSearch ? <button onClick={() => setReferenceSearch("")} aria-label="Limpiar búsqueda"><X size={15} /></button> : null}</div><span className="soft-badge">{references.length} resultados</span></div>
-          <div className="table-scroll"><table className="data-table reference-table"><thead><tr><th>Indicador</th><th>Proyecto</th><th>Tarifa base</th><th>Contexto</th><th>Fuente</th><th>Estado</th></tr></thead><tbody>{references.map((reference) => <ReferenceRow key={reference.id} reference={reference} />)}</tbody></table></div>
+          <div className="catalog-filter" role="group" aria-label="Filtrar por tipo de proyecto">
+            {typeFilters.map((filter) => <button key={filter.id} className={projectTypeFilter === filter.id ? "is-active" : ""} onClick={() => setProjectTypeFilter(filter.id)}>{filter.label}<span>{filter.id === "all" ? workbook.costIndicators.length : workbook.costIndicators.filter((indicator) => indicator.projectType === filter.id).length}</span></button>)}
+          </div>
+          <div className="reference-toolbar"><div className="search-box"><Search size={17} /><input value={referenceSearch} onChange={(event) => setReferenceSearch(event.target.value)} placeholder="Buscar concepto, proyecto, bloque o fuente…" />{referenceSearch ? <button onClick={() => setReferenceSearch("")} aria-label="Limpiar búsqueda"><X size={15} /></button> : null}</div><span className="soft-badge">{indicators.length} resultados · {groupedIndicators.length} bloques</span></div>
+          <div className="table-scroll"><table className="data-table reference-table catalog-table"><thead><tr><th>Concepto</th><th>Valor histórico</th><th>Base</th><th>Tarifa final</th><th>Unidad</th><th>Fuente</th><th>Estado / uso</th></tr></thead><tbody>{groupedIndicators.map(([groupId, group]) => {
+            const first = group[0];
+            return <Fragment key={groupId}><tr className="catalog-group-row"><td colSpan={7}><div className="catalog-group-content"><div className="catalog-group-copy"><strong>{first.groupLabel}</strong><span>{first.project} · {PROJECT_TYPE_LABELS[first.projectType]} · Base {first.baseYear}{first.floorCount ? ` · ${first.floorCount} pisos` : ""}</span></div><small>{group.length} {group.length === 1 ? "indicador" : "indicadores"}</small></div></td></tr>{group.map((indicator) => <CostIndicatorRow key={indicator.id} indicator={indicator} />)}</Fragment>;
+          })}{indicators.length === 0 ? <tr className="catalog-empty"><td colSpan={7}>No hay indicadores que coincidan con los filtros.</td></tr> : null}</tbody></table></div>
         </article>
-        <div className="governance-note"><ShieldCheck size={22} /><div><strong>Gobierno del dato</strong><p>Una tarifa nueva no entra al cálculo oficial hasta que Presupuestos confirme unidad, alcance, exclusiones y comparabilidad.</p></div><button onClick={() => setActiveView("import")}>Ver control de calidad <ArrowRight size={15} /></button></div>
+        <div className="governance-note"><ShieldCheck size={22} /><div><strong>Catálogo visible, selección controlada</strong><p>Todas las filas permanecen consultables. Solo los indicadores completos y comparables se ofrecen como referentes en los escenarios.</p></div><button onClick={() => setActiveView("import")}>Ver control de calidad <ArrowRight size={15} /></button></div>
       </>
     );
   }
@@ -660,7 +804,7 @@ function App() {
           <article className="card import-summary">
             <div className="card-heading"><div><span className="eyebrow">Libro activo</span><h3>{workbook.metadata.sourceFileName}</h3></div><span className={`quality-pill quality-${workbook.quality.status}`}>{workbook.quality.status === "validated" ? <CheckCircle2 size={15} /> : <AlertTriangle size={15} />}{workbook.quality.status === "validated" ? "Conciliado" : "Requiere revisión"}</span></div>
             <div className="sheet-list">
-              {[{ name: "Indicadores costos", detail: `${workbook.references.length} tarifas normalizadas` }, { name: "Ppto ", detail: `${workbook.scenarios.length} sensibilidades detectadas` }, { name: "Presentacion", detail: "Áreas, viviendas y urbanismo externo" }].map((sheet) => <div key={sheet.name}><span className="sheet-check"><Check size={15} /></span><p><strong>{sheet.name}</strong><small>{sheet.detail}</small></p><span className="sheet-status">Leída</span></div>)}
+              {[{ name: "Indicadores costos", detail: `${workbook.costIndicators.length} indicadores del catálogo` }, { name: "Ppto ", detail: `${workbook.scenarios.length} sensibilidades y áreas detectadas` }, { name: "Presentacion", detail: "Áreas, viviendas y urbanismo externo" }].map((sheet) => <div key={sheet.name}><span className="sheet-check"><Check size={15} /></span><p><strong>{sheet.name}</strong><small>{sheet.detail}</small></p><span className="sheet-status">Leída</span></div>)}
             </div>
             <div className="import-kpis"><div><span>Versión</span><strong>{workbook.metadata.version}</strong></div><div><span>Año base</span><strong>{workbook.metadata.baseYear}</strong></div><div><span>Moneda</span><strong>{workbook.metadata.currency}</strong></div></div>
           </article>
@@ -706,9 +850,9 @@ function TraceItem({ label, value, mono = false }: { label: string; value: strin
   return <div className="trace-item"><span>{label}</span><strong className={mono ? "mono" : ""}>{value}</strong></div>;
 }
 
-function ReferenceRow({ reference }: { reference: CostReference }) {
-  const review = reference.reviewStatus === "validated" ? "Validado" : reference.reviewStatus === "needs-review" ? "Revisar" : "No comparable";
-  return <tr><td><span className={`chapter-dot chapter-${reference.chapter}`} /><div><strong>{reference.label}</strong><small>{CHAPTER_LABELS[reference.chapter]}</small></div></td><td><strong>{reference.project}</strong><small>{reference.baseYear}</small></td><td><strong>{formatCurrency(reference.baseRate)}</strong><small>{reference.rateUnit}</small></td><td><span className="context-pill">{reference.context.product ?? reference.context.assetClass}</span>{reference.context.floorCount ? <small>{reference.context.floorCount} pisos</small> : null}</td><td><code>{reference.source.sheet}!{reference.source.cell}</code></td><td><span className={`review-pill review-${reference.reviewStatus}`}><StatusDot status={reference.reviewStatus === "validated" ? "good" : "warning"} />{review}</span></td></tr>;
+function CostIndicatorRow({ indicator }: { indicator: CostIndicator }) {
+  const chapters = indicator.compatibleChapters.map((chapter) => CHAPTER_LABELS[chapter]).join(" · ");
+  return <tr className="catalog-indicator-row"><td><strong>{indicator.concept}</strong><small>{chapters || "Sin capítulo asignado"}</small></td><td><strong>{formatCurrency(indicator.historicalAmount)}</strong><small>Valor registrado</small></td><td><strong>{formatNumber(indicator.basisQuantity)}</strong><small>Cantidad base</small></td><td><strong>{formatCurrency(indicator.finalRate)}</strong><small>{indicator.adjustmentPerUnit ? `${formatSignedCurrency(indicator.adjustmentPerUnit)} ajuste` : "Sin ajuste"}</small></td><td><span className="unit-pill">{indicator.originalUnit || "Sin unidad"}</span></td><td><code>{indicator.source.sheet}!{indicator.source.cell}</code><small>Fila original</small></td><td><span className={`usage-pill usage-${indicator.usage}`}><StatusDot status={indicator.usage === "selectable" ? "good" : indicator.usage === "unmapped" ? "warning" : "muted"} />{INDICATOR_USAGE_LABELS[indicator.usage]}</span></td></tr>;
 }
 
 export default App;

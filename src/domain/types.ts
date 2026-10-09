@@ -75,6 +75,8 @@ export interface ReferenceContext {
 export interface CostReference {
   id: string;
   chapter: ChapterKey;
+  /** Link to the original row in the complete historical catalogue. */
+  catalogIndicatorId?: string;
   label: string;
   project: string;
   baseYear: number;
@@ -87,6 +89,44 @@ export interface CostReference {
   exclusions: readonly string[];
   context: ReferenceContext;
   reviewStatus: ReviewStatus;
+}
+
+export type ProjectType = "residential-tower" | "office" | "houses";
+
+/**
+ * How a row from `Indicadores costos` can participate in a budget.
+ *
+ * `partial`, `administration` and `unmapped` rows remain visible in the
+ * catalogue, but are not silently offered as complete COP/m2 references.
+ */
+export type CostIndicatorUsage =
+  | "selectable"
+  | "partial"
+  | "administration"
+  | "unmapped";
+
+/** A faithful, row-level representation of the historical cost catalogue. */
+export interface CostIndicator {
+  id: string;
+  groupId: string;
+  groupLabel: string;
+  project: string;
+  projectType: ProjectType;
+  baseYear: number;
+  floorCount?: number;
+  concept: string;
+  originalUnit: string;
+  historicalAmount: number;
+  basisQuantity: number;
+  unitRate: number;
+  adjustmentPerUnit: number;
+  finalRate: number;
+  usage: CostIndicatorUsage;
+  compatibleChapters: readonly ChapterKey[];
+  context: ReferenceContext;
+  source: CellSource;
+  amountSource: CellSource;
+  quantitySource: CellSource;
 }
 
 export interface ScenarioAreas {
@@ -287,6 +327,9 @@ export interface WorkbookQuality {
 
 export interface WorkbookModel {
   metadata: WorkbookMetadata;
+  /** All rows found in the `Indicadores costos` sheet. */
+  costIndicators: readonly CostIndicator[];
+  /** Normalized, selectable references used by the estimator. */
   references: readonly CostReference[];
   scenarios: readonly ScenarioInput[];
   config: EstimateConfig;

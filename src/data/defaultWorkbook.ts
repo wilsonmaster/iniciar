@@ -5,6 +5,8 @@ import type {
   ScenarioInput,
   WorkbookModel,
 } from "../domain/types";
+import { buildCandidateReferences } from "../domain/referenceCandidates";
+import { DEFAULT_COST_INDICATORS } from "./defaultCostIndicators";
 
 const SOURCE_FILE = "INDICADORES.xlsx";
 const COST_SHEET = "Indicadores costos";
@@ -37,10 +39,11 @@ export const DEFAULT_REFERENCE_IDS = {
   preliminaries: "pinar-preliminaries-2026",
 } as const;
 
-export const DEFAULT_REFERENCES = [
+const DEFAULT_PREFERRED_REFERENCES = [
   {
     id: DEFAULT_REFERENCE_IDS["vis-towers"],
     chapter: "vis-towers",
+    catalogIndicatorId: "pinar-vis-2026-r70",
     label: "Torres VIS",
     project: "Pinar VIS",
     baseYear: 2026,
@@ -67,6 +70,7 @@ export const DEFAULT_REFERENCES = [
   {
     id: DEFAULT_REFERENCE_IDS["non-vis-towers"],
     chapter: "non-vis-towers",
+    catalogIndicatorId: "arbore-2026-r19",
     label: "Torres No VIS",
     project: "Arbore",
     baseYear: 2026,
@@ -93,6 +97,7 @@ export const DEFAULT_REFERENCES = [
   {
     id: DEFAULT_REFERENCE_IDS["parking-building"],
     chapter: "parking-building",
+    catalogIndicatorId: "pinar-vis-2026-r68",
     label: "Edificio de parqueaderos",
     project: "Pinar VIS",
     baseYear: 2026,
@@ -122,6 +127,7 @@ export const DEFAULT_REFERENCES = [
   {
     id: DEFAULT_REFERENCE_IDS["common-areas"],
     chapter: "common-areas",
+    catalogIndicatorId: "pinar-vis-2026-r69",
     label: "Zonas comunes",
     project: "Pinar VIS",
     baseYear: 2026,
@@ -147,6 +153,7 @@ export const DEFAULT_REFERENCES = [
   {
     id: DEFAULT_REFERENCE_IDS["internal-urbanism"],
     chapter: "internal-urbanism",
+    catalogIndicatorId: "pinar-vis-2026-r71",
     label: "Urbanismo interno",
     project: "Pinar VIS",
     baseYear: 2026,
@@ -172,6 +179,7 @@ export const DEFAULT_REFERENCES = [
   {
     id: DEFAULT_REFERENCE_IDS.preliminaries,
     chapter: "preliminaries",
+    catalogIndicatorId: "pinar-vis-2026-r67",
     label: "Preliminares",
     project: "Pinar VIS",
     baseYear: 2026,
@@ -195,6 +203,11 @@ export const DEFAULT_REFERENCES = [
     reviewStatus: "validated",
   },
 ] as const satisfies readonly CostReference[];
+
+export const DEFAULT_REFERENCES = buildCandidateReferences(
+  DEFAULT_COST_INDICATORS,
+  DEFAULT_PREFERRED_REFERENCES,
+);
 
 export const DEFAULT_ESTIMATE_CONFIG: EstimateConfig = {
   calculationVersion: "indicadores-2026-v1",
@@ -515,6 +528,7 @@ export const DEFAULT_WORKBOOK: WorkbookModel = {
     currency: "COP",
     sheetNames: [PRESENTATION_SHEET, BUDGET_SHEET, COST_SHEET],
   },
+  costIndicators: DEFAULT_COST_INDICATORS,
   references: DEFAULT_REFERENCES,
   scenarios: DEFAULT_SCENARIOS,
   config: DEFAULT_ESTIMATE_CONFIG,
